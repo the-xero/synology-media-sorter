@@ -19,6 +19,7 @@ logger = logging.getLogger("sorter")
 # 기본 camera_map.json 검색 경로 순서
 DEFAULT_CAMERA_MAP_PATHS = [
     Path("config/camera_map.json"),
+    Path("/app/config/camera_map.json"),
     Path("camera_map.json"),
 ]
 
