@@ -12,6 +12,9 @@ RUN apt-get update \
 WORKDIR /app
 COPY src/ /app/src/
 
+# 사용자 계정(PUID/PGID)으로 실행 시 패키지 및 모듈 읽기/탐색 권한 보장
+RUN chmod -R a+rX /app
+
 # 실행 UID:GID 는 docker-compose 의 user 로 주입 (PUID/PGID)
 # 서브커맨드 기본값은 daemon. oneshot 은 `docker run ... media-sorter python -m src.main oneshot --dry-run`
 CMD ["python", "-m", "src.main", "daemon"]
