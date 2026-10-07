@@ -7,6 +7,7 @@ import shutil
 import signal
 import sys
 import threading
+from pathlib import Path
 from typing import List, Optional
 
 from .config import Config, logger, setup_logging
