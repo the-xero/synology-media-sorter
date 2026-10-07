@@ -21,6 +21,9 @@ services:
       JPG_DIR_NAME: ${JPG_DIR_NAME:-JPG}
       VIDEO_DIR_NAME: ${VIDEO_DIR_NAME:-Video}
       EXPORT_DIR_NAME: ${EXPORT_DIR_NAME:-Export}
+      CREATE_RAW_DIR: ${CREATE_RAW_DIR:-true}
+      CREATE_JPG_DIR: ${CREATE_JPG_DIR:-true}
+      CREATE_VIDEO_DIR: ${CREATE_VIDEO_DIR:-true}
       CREATE_EXPORT_DIR: ${CREATE_EXPORT_DIR:-false}
     volumes:
       # 동일 볼륨 즉시 이동(os.rename)을 보장하기 위해 상위 공통 볼륨을 /media 로 단일 마운트

@@ -102,9 +102,16 @@ def cleanup_empty_dirs(cfg: Config) -> None:
     """
     now = time.time()
     protected_names = {
-        cfg.raw_dir_name, cfg.jpg_dir_name, cfg.video_dir_name, cfg.export_dir_name,
         "RAW", "JPG", "Video", "Export", "raw", "movie", ".raw",
     }
+    if cfg.create_raw_dir:
+        protected_names.add(cfg.raw_dir_name)
+    if cfg.create_jpg_dir:
+        protected_names.add(cfg.jpg_dir_name)
+    if cfg.create_video_dir:
+        protected_names.add(cfg.video_dir_name)
+    if cfg.create_export_dir:
+        protected_names.add(cfg.export_dir_name)
     for dirpath, _dirnames, _ in os.walk(cfg.input_dir, topdown=False):
         p = Path(dirpath)
         if (
@@ -190,15 +197,23 @@ def process_batch(
             atomic_move(m.path, dst)
             touched_parents.add(dst.parent)
 
-            # Export 폴더 생성 옵션 처리
-            if cfg.create_export_dir:
-                export_root = m.path.parent if inplace else dst.parent.parent
-                export_path = export_root / cfg.export_dir_name
-                try:
-                    export_path.mkdir(parents=True, exist_ok=True)
-                    touched_parents.add(export_path)
-                except OSError as exp_err:
-                    logger.debug("Export 디렉터리 생성 실패: %s (%s)", export_path, exp_err)
+            # 하위 분류/내보내기 폴더 생성 보장 (옵션 활성화 시 빈 폴더 유지)
+            date_root = m.path.parent if inplace else (
+                cfg.target_dir / m.stamp.strftime("%Y") / m.stamp.strftime("%Y-%m-%d")
+            )
+            for is_enabled, dir_name in [
+                (cfg.create_raw_dir, cfg.raw_dir_name),
+                (cfg.create_jpg_dir, cfg.jpg_dir_name),
+                (cfg.create_video_dir, cfg.video_dir_name),
+                (cfg.create_export_dir, cfg.export_dir_name),
+            ]:
+                if is_enabled:
+                    sub_dir = date_root / dir_name
+                    try:
+                        sub_dir.mkdir(parents=True, exist_ok=True)
+                        touched_parents.add(sub_dir)
+                    except OSError as dir_err:
+                        logger.debug("하위 디렉터리 생성 실패: %s (%s)", sub_dir, dir_err)
 
             # 연결된 사이드카 파일도 함께 이동
             for ssrc, sdst in sidecar_plan:

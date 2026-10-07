@@ -59,6 +59,9 @@ class Config:
         jpg_dir_name: 사진 파일 폴더명 (기본 JPG).
         video_dir_name: 영상 파일 폴더명 (기본 Video).
         export_dir_name: 내보내기 폴더명 (기본 Export).
+        create_raw_dir: RAW 폴더 분류 및 생성 여부 (기본 True).
+        create_jpg_dir: JPG 폴더 분류 및 생성 여부 (기본 True).
+        create_video_dir: Video 폴더 분류 및 생성 여부 (기본 True).
         create_export_dir: Export 폴더 생성 여부 (기본 False).
     """
 
@@ -71,6 +74,9 @@ class Config:
     jpg_dir_name: str = "JPG"
     video_dir_name: str = "Video"
     export_dir_name: str = "Export"
+    create_raw_dir: bool = True
+    create_jpg_dir: bool = True
+    create_video_dir: bool = True
     create_export_dir: bool = False
 
     @classmethod
@@ -89,6 +95,15 @@ class Config:
             os.environ.get("VIDEO_DIR_NAME") or os.environ.get("MOVIE_DIR_NAME", "Video")
         ).strip() or "Video"
         export_dir = os.environ.get("EXPORT_DIR_NAME", "Export").strip() or "Export"
+        create_raw = os.environ.get("CREATE_RAW_DIR", "true").strip().lower() in (
+            "true", "1", "yes",
+        )
+        create_jpg = os.environ.get("CREATE_JPG_DIR", "true").strip().lower() in (
+            "true", "1", "yes",
+        )
+        create_video = os.environ.get("CREATE_VIDEO_DIR", "true").strip().lower() in (
+            "true", "1", "yes",
+        )
         create_export = os.environ.get("CREATE_EXPORT_DIR", "false").strip().lower() in (
             "true", "1", "yes",
         )
@@ -104,6 +119,9 @@ class Config:
                 jpg_dir_name=jpg_dir,
                 video_dir_name=video_dir,
                 export_dir_name=export_dir,
+                create_raw_dir=create_raw,
+                create_jpg_dir=create_jpg,
+                create_video_dir=create_video,
                 create_export_dir=create_export,
             )
         except ValueError as exc:

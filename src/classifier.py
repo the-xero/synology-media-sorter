@@ -50,11 +50,11 @@ def dest_dir_for(cfg: Config, m: MediaFile, inplace: bool = False) -> Path:
     """
     if inplace:
         base = m.path.parent
-        if m.kind == "video":
+        if m.kind == "video" and cfg.create_video_dir:
             return base / cfg.video_dir_name
-        if m.kind == "raw":
+        if m.kind == "raw" and cfg.create_raw_dir:
             return base / cfg.raw_dir_name
-        if m.kind == "photo":
+        if m.kind == "photo" and cfg.create_jpg_dir:
             return base / cfg.jpg_dir_name
         return base
 
@@ -63,11 +63,11 @@ def dest_dir_for(cfg: Config, m: MediaFile, inplace: bool = False) -> Path:
     date_str = m.stamp.strftime("%Y-%m-%d")
     base = cfg.target_dir / year_str / date_str
 
-    if m.kind == "video":
+    if m.kind == "video" and cfg.create_video_dir:
         return base / cfg.video_dir_name
-    if m.kind == "raw":
+    if m.kind == "raw" and cfg.create_raw_dir:
         return base / cfg.raw_dir_name
-    if m.kind == "photo":
+    if m.kind == "photo" and cfg.create_jpg_dir:
         return base / cfg.jpg_dir_name
     return base
 

@@ -103,16 +103,18 @@ sudo docker run --rm --env-file .env \
 
 ### 분류 규칙 테이블
 
-하위 폴더 이름(`RAW`, `JPG`, `Video`, `Export`)은 환경 변수로 변경할 수 있습니다.
+하위 폴더 이름(`RAW`, `JPG`, `Video`, `Export`) 및 하위 분류 폴더 생성/비활성화 여부는 환경 변수로 변경할 수 있습니다.
+(`CREATE_RAW_DIR`, `CREATE_JPG_DIR`, `CREATE_VIDEO_DIR` 기본값: `true`, `CREATE_EXPORT_DIR` 기본값: `false`)  
+*옵션을 `false`로 설정 시 해당 미디어는 하위 폴더 없이 날짜 폴더(또는 oneshot 현재 폴더) 직하에 바로 저장됩니다.*
 
-| 종류 | 확장자 | 데몬 위치 (TARGET 기준) | 일회성(oneshot) 위치 (현재 폴더 기준) |
+| 종류 | 확장자 | 활성화 시 위치 (기본값) | 비활성화(false) 시 위치 |
 |---|---|---|---|
-| 사진 | JPG, JPEG, HEIC, PNG | `{yyyy}/{yyyy-mm-dd}/{JPG_DIR_NAME}/` | `{현재폴더}/{JPG_DIR_NAME}/` |
-| 영상 | MP4, MOV, M4V, AVI | `{yyyy}/{yyyy-mm-dd}/{VIDEO_DIR_NAME}/` | `{현재폴더}/{VIDEO_DIR_NAME}/` |
-| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{yyyy}/{yyyy-mm-dd}/{RAW_DIR_NAME}/` | `{현재폴더}/{RAW_DIR_NAME}/` |
+| 사진 | JPG, JPEG, HEIC, PNG | `{날짜폴더}/{JPG_DIR_NAME}/` | `{날짜폴더}/` 직하 저장 |
+| 영상 | MP4, MOV, M4V, AVI | `{날짜폴더}/{VIDEO_DIR_NAME}/` | `{날짜폴더}/` 직하 저장 |
+| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{날짜폴더}/{RAW_DIR_NAME}/` | `{날짜폴더}/` 직하 저장 |
 | 사이드카 | XMP, XML, AAE, ON1 | 메인 미디어와 동일 폴더 (RAW 파일의 경우 `RAW/`) | 메인 미디어와 동일 폴더 |
-| Export | - | `CREATE_EXPORT_DIR=true` 시 날짜 폴더 내 빈 폴더 생성 | `CREATE_EXPORT_DIR=true` 시 현재 폴더 내 빈 폴더 생성 |
-| 기타(미지원) | 그 외 | `{yyyy}/{yyyy-mm-dd}/` (원본 파일명 유지) | `{현재폴더}/` (원본 파일명 유지) |
+| Export | - | `CREATE_EXPORT_DIR=true` 시 날짜 폴더 내 빈 폴더 생성 | 생성 안 함 |
+| 기타(미지원) | 그 외 | `{날짜폴더}/` (원본 파일명 유지) | `{날짜폴더}/` (원본 파일명 유지) |
 
 - **일시**: 사진/RAW `DateTimeOriginal`(→`CreateDate`), 영상 `CreateDate`→`MediaCreateDate`, 없으면 `st_mtime`.
   영상의 QuickTime UTC 시각은 `TZ` 기준 로컬 시각으로 변환됩니다.
