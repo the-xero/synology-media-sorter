@@ -28,12 +28,14 @@ def _fsync_dir(path: Path) -> None:
         pass
 
 
-def atomic_move(src: Path, dst: Path) -> None:
-    """덮어쓰기 없이 원자적으로 파일을 이동한다.
+COPY_BUFFER_SIZE = 64 * 1024 * 1024  # 64MB 고속 버퍼
 
-    같은 파일시스템: ``os.link`` + ``unlink`` (dst 존재 시 FileExistsError 로
-    원자적 실패 → rename 의 무음 덮어쓰기 방지).
-    다른 파일시스템(EXDEV): 대상 폴더 내 임시 파일로 복사+fsync 후 link 로 공개.
+
+def atomic_move(src: Path, dst: Path) -> None:
+    """덮어쓰기 없이 원자적으로 파일을 고속 이동한다.
+
+    1. 같은 파일시스템: ``os.link`` 우선 시도, 실패 시 동일 볼륨 여부 확인 후 ``os.replace`` 고속 메타데이터 이동.
+    2. 다른 파일시스템(EXDEV): 대상 폴더 내 임시 파일로 64MB 고속 버퍼 복사 후 원자적 공개.
 
     Args:
         src: 원본.
@@ -43,40 +45,43 @@ def atomic_move(src: Path, dst: Path) -> None:
         FileExistsError: dst 가 이미 존재.
         OSError: 복사/검증 실패.
     """
+    if dst.exists():
+        raise FileExistsError(dst)
+
     dst.parent.mkdir(parents=True, exist_ok=True)
+
+    # 1. 하드링크 시도 (초고속, 원자적)
     try:
         os.link(src, dst)
         os.unlink(src)
-        _fsync_dir(dst.parent)
         return
     except FileExistsError:
         raise
     except OSError as exc:
+        # 하드링크 미지원 또는 이종 파일시스템
         if exc.errno not in (errno.EXDEV, errno.EPERM, errno.ENOTSUP, errno.EMLINK):
             raise
-        logger.debug("link 불가(%s) -> 복사 폴백: %s", errno.errorcode.get(exc.errno), src.name)
+        # 동일 볼륨 내에서 하드링크만 제한된 경우(일부 파일시스템/권한), 즉시 rename 시도
+        if exc.errno in (errno.EPERM, errno.ENOTSUP):
+            try:
+                os.replace(src, dst)
+                return
+            except OSError as ren_exc:
+                if ren_exc.errno != errno.EXDEV:
+                    raise
 
+    # 2. 다른 파일시스템(EXDEV) 간 대용량 고속 복사 폴백
     tmp = dst.parent / f".{dst.name}.{uuid.uuid4().hex[:8]}.tmp"
     try:
         with open(src, "rb") as fin, open(tmp, "wb") as fout:
-            shutil.copyfileobj(fin, fout, length=8 * 1024 * 1024)
+            shutil.copyfileobj(fin, fout, length=COPY_BUFFER_SIZE)
             fout.flush()
-            os.fsync(fout.fileno())
         shutil.copystat(src, tmp)
         if tmp.stat().st_size != src.stat().st_size:
             raise OSError(f"복사본 크기 불일치: {src}")
-        try:
-            os.link(tmp, dst)  # 원자적 공개 (dst 존재 시 실패)
-        except OSError as exc:
-            if exc.errno == errno.EEXIST:
-                raise FileExistsError(dst) from exc
-            if exc.errno in (errno.EPERM, errno.ENOTSUP):
-                if dst.exists():
-                    raise FileExistsError(dst) from exc
-                os.rename(tmp, dst)  # 하드링크 미지원 FS 폴백
-            else:
-                raise
-        _fsync_dir(dst.parent)
+
+        # 임시 파일을 최종 목적지로 원자적 교체
+        os.replace(tmp, dst)
         os.unlink(src)  # 공개 및 검증 완료 후에만 원본 삭제
     finally:
         if tmp.exists():
@@ -148,6 +153,7 @@ def process_batch(
         items.append(build_media(p, rows.get(str(p), {}), snap))
     result.total = len(files)
 
+    touched_parents: Set[Path] = set()
     for m, dst, sidecar_plan in assign_names(cfg, items, inplace=inplace):
         rel_src = m.path.relative_to(cfg.input_dir)
         rel_dst = dst.relative_to(cfg.target_dir)
@@ -178,12 +184,14 @@ def process_batch(
                 result.skipped += 1
                 continue
             atomic_move(m.path, dst)
+            touched_parents.add(dst.parent)
 
             # 연결된 사이드카 파일도 함께 이동
             for ssrc, sdst in sidecar_plan:
                 try:
                     if ssrc.resolve() != sdst.resolve():
                         atomic_move(ssrc, sdst)
+                        touched_parents.add(sdst.parent)
                         rel_ssrc = ssrc.relative_to(cfg.input_dir)
                         rel_sdst = sdst.relative_to(cfg.target_dir)
                         logger.log(MOVE_LEVEL, "%s -> %s (사이드카)", rel_ssrc, rel_sdst)
@@ -201,5 +209,10 @@ def process_batch(
         except OSError as exc:
             result.errors += 1
             logger.error("이동 실패 (다음 주기 재시도): %s -> %s (%s)", m.path, dst, exc)
+
+    # 배치 이동 완료 후 변경된 디렉터리 일괄 메타데이터 동기화
+    for parent_dir in touched_parents:
+        _fsync_dir(parent_dir)
+
     logger.info("배치 완료: %d/%d 이동", result.moved, result.total)
     return result

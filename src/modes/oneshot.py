@@ -43,6 +43,7 @@ def run_oneshot(
     stop: threading.Event,
     max_wait: float = DEFAULT_MAX_WAIT,
     recursive: bool = False,
+    no_settle: bool = False,
 ) -> int:
     """일회성 처리를 실행한다.
 
@@ -54,13 +55,14 @@ def run_oneshot(
         stop: 설정되면 대기 루프를 중단하는 이벤트.
         max_wait: 실제 실행 시 안정화 대기 상한(초).
         recursive: True 면 하위 디렉터리까지 재귀 탐색, False 면 루트 직하만 1단계 탐색.
+        no_settle: True 면 Settle Check 대기 없이 즉시 처리.
 
     Returns:
         종료 코드 (오류 발생 시 1, 그 외 0).
     """
     logger.info(
-        "oneshot 시작: input=%s (in-place) dry_run=%s recursive=%s",
-        cfg.input_dir, dry_run, recursive,
+        "oneshot 시작: input=%s (in-place) dry_run=%s recursive=%s no_settle=%s",
+        cfg.input_dir, dry_run, recursive, no_settle,
     )
     extra_excluded = {cfg.raw_dir_name, cfg.movie_dir_name, "raw", "movie", ".raw"}
     files = list(iter_input_files(
@@ -75,11 +77,20 @@ def run_oneshot(
         _log_summary(total, dry_run=True)
         return 0
 
+    if no_settle:
+        # Why: 이미 복사가 완료된 로컬 디렉터리의 경우 30초 대기 없이 즉시 일괄 처리
+        if files:
+            total.merge(process_batch(cfg, files, _stat_snapshot, dry_run=False, inplace=True))
+        if total.moved:
+            cleanup_empty_dirs(cfg)
+        _log_summary(total, dry_run=False)
+        return 1 if total.errors else 0
+
     tracker = SettleTracker(cfg)
     deadline = time.monotonic() + max_wait
     pending = files
     while pending and not stop.is_set():
-        stable = tracker.poll(pending)
+        stable = tracker.poll(pending, allow_past_mtime_instant=True)
         if stable:
             total.merge(process_batch(
                 cfg, stable, tracker.snapshot, on_moved=tracker.forget, inplace=True,

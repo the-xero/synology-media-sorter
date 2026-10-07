@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from .classifier import classify
 from .config import (
-    EXIFTOOL_CHUNK, PHOTO_DATE_TAGS, UNIQUE_TAGS, VIDEO_DATE_TAGS, logger,
+    EXIFTOOL_CHUNK, PHOTO_DATE_TAGS, PHOTO_EXTS, RAW_EXTS, UNIQUE_TAGS,
+    VIDEO_DATE_TAGS, VIDEO_EXTS, logger,
 )
 from .models import MediaFile
 from .settle import find_sidecars
@@ -65,34 +68,64 @@ def number_from_filename(stem: str) -> Optional[str]:
     m = re.search(r"(\d+)(?!.*\d)", stem)
     return normalize_number(m.group(1)) if m else None
 
+_SUPPORTED_MEDIA_EXTS = PHOTO_EXTS | VIDEO_EXTS | RAW_EXTS
+
+
+def _parse_chunk(chunk: List[Path], tags: List[str]) -> Dict[str, dict]:
+    """ExifTool 1회 호출 단위 처리 함수."""
+    cmd = [
+        "exiftool", "-json", "-q", "-m", "-api", "QuickTimeUTC=1",
+        "-charset", "filename=utf8", *[f"-{t}" for t in tags], "-@", "-",
+    ]
+    chunk_result: Dict[str, dict] = {}
+    try:
+        proc = subprocess.run(
+            cmd, input="\n".join(str(p) for p in chunk),
+            capture_output=True, text=True, encoding="utf-8", timeout=600,
+        )
+        for row in json.loads(proc.stdout or "[]"):
+            chunk_result[row["SourceFile"]] = row
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
+        logger.error("ExifTool 실행/파싱 실패 (%d개 파일, mtime 폴백): %s", len(chunk), exc)
+    return chunk_result
+
 
 def run_exiftool(paths: List[Path]) -> Dict[str, dict]:
-    """ExifTool 을 배치 호출하여 메타데이터를 JSON 으로 수집한다.
+    """ExifTool 을 병렬 배치 호출하여 메타데이터를 JSON 으로 수집한다.
+
+    - 미디어 파일(사진/영상/RAW)만 선별하여 ExifTool 에 전달.
+    - CPU 코어 수에 맞추어 여러 청크를 병렬로 동시 파싱.
 
     Args:
         paths: 대상 파일 목록.
 
     Returns:
-        ``SourceFile`` 문자열 -> 태그 dict 매핑. 실패한 청크는 비어 있다.
+        ``SourceFile`` 문자열 -> 태그 dict 매핑.
     """
-    result: Dict[str, dict] = {}
+    # 미지원 파일(other)은 ExifTool 호출 불필요
+    target_paths = [
+        p for p in paths if p.suffix.lstrip(".").lower() in _SUPPORTED_MEDIA_EXTS
+    ]
+    if not target_paths:
+        return {}
+
     tags = [*PHOTO_DATE_TAGS, *VIDEO_DATE_TAGS, *UNIQUE_TAGS, "Model"]
-    for i in range(0, len(paths), EXIFTOOL_CHUNK):
-        chunk = paths[i : i + EXIFTOOL_CHUNK]
-        # 파일 경로는 stdin(-@) 으로 전달하여 인자 길이 제한 및 특수문자 문제 회피
-        cmd = [
-            "exiftool", "-json", "-q", "-m", "-api", "QuickTimeUTC=1",
-            "-charset", "filename=utf8", *[f"-{t}" for t in tags], "-@", "-",
-        ]
-        try:
-            proc = subprocess.run(
-                cmd, input="\n".join(str(p) for p in chunk),
-                capture_output=True, text=True, encoding="utf-8", timeout=600,
-            )
-            for row in json.loads(proc.stdout or "[]"):
-                result[row["SourceFile"]] = row
-        except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as exc:
-            logger.error("ExifTool 실행/파싱 실패 (%d개 파일, mtime 폴백): %s", len(chunk), exc)
+    chunks = [
+        target_paths[i : i + EXIFTOOL_CHUNK]
+        for i in range(0, len(target_paths), EXIFTOOL_CHUNK)
+    ]
+
+    workers = min(os.cpu_count() or 4, 8, max(1, len(chunks)))
+    result: Dict[str, dict] = {}
+
+    if workers <= 1 or len(chunks) == 1:
+        for chunk in chunks:
+            result.update(_parse_chunk(chunk, tags))
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [executor.submit(_parse_chunk, chunk, tags) for chunk in chunks]
+            for fut in futures:
+                result.update(fut.result())
     return result
 
 

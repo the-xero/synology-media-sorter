@@ -43,30 +43,56 @@ def is_sidecar_file(name: str) -> bool:
     return ext in SIDECAR_EXTS
 
 
-def find_sidecars(media_path: Path) -> List[Path]:
-    """미디어 파일에 연결된 사이드카 파일 목록을 반환한다.
+_DIR_FILES_CACHE: Dict[Path, Set[str]] = {}
+
+
+def get_dir_files(parent: Path) -> Set[str]:
+    """디렉터리 내 파일명 집합을 캐싱하여 반환한다 (디스크 I/O 최소화)."""
+    if parent not in _DIR_FILES_CACHE:
+        try:
+            with os.scandir(parent) as it:
+                _DIR_FILES_CACHE[parent] = {entry.name for entry in it if entry.is_file()}
+        except OSError:
+            _DIR_FILES_CACHE[parent] = set()
+    return _DIR_FILES_CACHE[parent]
+
+
+def clear_dir_files_cache() -> None:
+    """디렉터리 파일 캐시를 비운다."""
+    _DIR_FILES_CACHE.clear()
+
+
+def find_sidecars(media_path: Path, dir_files: Optional[Set[str]] = None) -> List[Path]:
+    """미디어 파일에 연결된 사이드카 파일 목록을 반환한다 (메모리 O(1) 검색).
 
     예: ``IMG_0001.CR3`` -> ``IMG_0001.xmp``, ``IMG_0001.xml``, ``IMG_0001.CR3.xmp`` 등.
 
     Args:
         media_path: 메인 미디어 파일 경로.
+        dir_files: 해당 디렉터리의 파일명 집합 (생략 시 캐시 자동 조회).
 
     Returns:
         존재하는 사이드카 파일 경로 리스트.
     """
     sidecars: List[Path] = []
     parent = media_path.parent
+    files_in_dir = dir_files if dir_files is not None else get_dir_files(parent)
     stem = media_path.stem
     full_name = media_path.name
+
     for ext in SIDECAR_EXTS:
         # 패턴 1: {stem}.{ext} (대소문자 확장자 대응)
-        for c in (parent / f"{stem}.{ext}", parent / f"{stem}.{ext.upper()}"):
-            if c.exists() and c.is_file() and c not in sidecars:
-                sidecars.append(c)
+        for cand_name in (f"{stem}.{ext}", f"{stem}.{ext.upper()}"):
+            if cand_name in files_in_dir:
+                p = parent / cand_name
+                if p not in sidecars:
+                    sidecars.append(p)
         # 패턴 2: {full_name}.{ext} (예: IMG_0001.CR3.xmp)
-        for c in (parent / f"{full_name}.{ext}", parent / f"{full_name}.{ext.upper()}"):
-            if c.exists() and c.is_file() and c not in sidecars:
-                sidecars.append(c)
+        for cand_name in (f"{full_name}.{ext}", f"{full_name}.{ext.upper()}"):
+            if cand_name in files_in_dir:
+                p = parent / cand_name
+                if p not in sidecars:
+                    sidecars.append(p)
     return sidecars
 
 
@@ -136,11 +162,12 @@ class SettleTracker:
         self.cfg = cfg
         self._state: Dict[Path, Tracked] = {}
 
-    def poll(self, files: List[Path]) -> List[Path]:
+    def poll(self, files: List[Path], allow_past_mtime_instant: bool = True) -> List[Path]:
         """현재 파일 목록을 관측하여 안정화된 파일을 반환한다.
 
         Args:
             files: 이번 주기에 발견된 파일들.
+            allow_past_mtime_instant: 파일 mtime 이 이미 settle_threshold 이전이면 1회차 즉시 통과.
 
         Returns:
             안정화 조건을 모두 충족한 파일 목록.
@@ -156,6 +183,14 @@ class SettleTracker:
                 logger.debug("stat 실패(삭제/이동됨 추정): %s (%s)", p, exc)
                 continue
             seen.add(p)
+
+            # 최적화: 파일 수정 시각(mtime)이 이미 충분히 과거라면(진행 중인 복사가 아님) 즉시 완료 처리
+            quiet_mtime = wall - st.st_mtime >= self.cfg.settle_threshold
+            if allow_past_mtime_instant and quiet_mtime:
+                self._state[p] = Tracked(st.st_size, st.st_mtime_ns, self.cfg.stable_rounds, now)
+                stable.append(p)
+                continue
+
             prev = self._state.get(p)
             if prev and prev.size == st.st_size and prev.mtime_ns == st.st_mtime_ns:
                 prev.rounds += 1
@@ -163,9 +198,6 @@ class SettleTracker:
                 self._state[p] = prev = Tracked(st.st_size, st.st_mtime_ns, 1, now)
                 continue
             quiet_monotonic = now - prev.changed_at >= self.cfg.settle_threshold
-            # 클라이언트가 mtime 을 과거로 보존하는 경우가 있으므로 mtime 이 미래/현재에
-            # 가까우면(복사 진행 중) 추가로 대기한다.
-            quiet_mtime = wall - st.st_mtime >= self.cfg.settle_threshold
             if prev.rounds >= self.cfg.stable_rounds and quiet_monotonic and quiet_mtime:
                 stable.append(p)
         # 사라진 파일의 상태 제거 (메모리 누수 방지)

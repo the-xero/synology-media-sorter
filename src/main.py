@@ -30,6 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="안정화 대기 상한(초), 기본 %(default)s")
     one.add_argument("-r", "--recursive", action="store_true",
                      help="하위 폴더까지 재귀 탐색 (기본값: 루트 직하 1단계만 탐색)")
+    one.add_argument("--no-settle", action="store_true",
+                     help="Settle Check(안정화 대기)를 건너뛰고 즉시 처리")
 
     sub.add_parser("daemon", help="INPUT_DIR 상시 감시 (Settle Check 기반)")
     return parser
@@ -73,7 +75,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "daemon":
         return run_daemon(cfg, stop)
-    return run_oneshot(cfg, args.dry_run, stop, args.max_wait, recursive=args.recursive)
+    return run_oneshot(
+        cfg, args.dry_run, stop, args.max_wait, recursive=args.recursive, no_settle=args.no_settle,
+    )
 
 
 if __name__ == "__main__":
