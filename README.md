@@ -1,45 +1,68 @@
 # media-sorter
 
-Synology DSM(Btrfs)용 미디어 자동 분류/리네이밍 데몬. 수신 폴더의 복사 완료 파일을
-EXIF 일시 기준으로 `{TARGET}/{yymmdd}/` 에 `{yymmdd}-{hhmmss}-{고유번호}.{ext}` 로 이동합니다.
+Synology DSM(Btrfs)용 고속 미디어 자동 분류/리네이밍 데몬. 수신 폴더의 복사 완료 파일을
+EXIF 일시 기준으로 `{TARGET}/{yyyy}/{yyyy-mm-dd}/{분류폴더}/` 에 `{yymmdd}-{hhmmss}-{고유번호}.{ext}` 로 초고속 이동합니다.
+
+> **단일 마운트 기반 초고속 이동**: 소스와 목적지를 개별 볼륨으로 분리 마운트하면 동일 물리 드라이브라도 컨테이너 OS 상에서 다른 장치(EXDEV)로 인식되어 전체 파일 바이트 복사가 발생합니다. 상위 공통 볼륨을 `/media`로 단일 마운트하여 컨테이너 내부 `os.rename`/`os.link`를 통해 기가바이트급 영상/RAW 파일도 수 밀리초 내에 즉시 이동합니다.
+
+---
 
 ## 실행 모드
 
 코어 로직 모듈(`config`, `exif`, `classifier`, `mover`, `settle`)을 기반으로 두 가지 서브커맨드를 지원합니다:
 
-| 서브커맨드 | 주요 특징 및 대상 | 실행 방식 |
-|---|---|---|
-| `daemon` | 수신 폴더(`INPUT_DIR`) 상시 감시 → Settle Check 통과 시 대상 폴더(`TARGET_DIR`)로 이동 | `docker compose up -d` (기본값) |
-| `oneshot` | 지정 폴더(`INPUT_DIR`) 1회 스캔 → 내부 제자리(in-place) 날짜별 분류 및 리네이밍 (TARGET_DIR 불필요) | `docker run` 단독 실행 |
+| 서브커맨드 | 주요 특징 및 대상 | 마운트 및 경로 방식 | 실행 방식 |
+|---|---|---|---|
+| `daemon` | 수신 폴더(`INPUT_DIR`) 상시 감시 → Settle Check 통과 시 대상 폴더(`TARGET_DIR`)로 이동 | 상위 볼륨 단일 마운트 (`/media`) 및 환경 변수 경로 설정 | `docker compose up -d` (기본값) |
+| `oneshot` | 지정 폴더 1회 스캔 → 연도/날짜 폴더 없이 직하 제자리(in-place) 분류 및 리네이밍 | 단일 대상 폴더 마운트 강제 (`-v {대상}:/input`) | `docker run` 단독 실행 |
 
 ---
 
 ### 1. 상시 감시 데몬 실행 (`docker compose`)
 
-수신 전용 Inbox 폴더를 감시하여 완료된 파일을 최종 Photos 라이브러리로 지속 자동 이동합니다.
+수신 전용 Inbox 폴더를 감시하여 완료된 파일을 최종 라이브러리(`{yyyy}/{yyyy-mm-dd}/...`)로 지속 자동 이동합니다.
 
-```bash
-# 백그라운드 데몬 시작 (docker-compose.yml 기본 명령어가 daemon)
-sudo docker compose up -d --build
+1. `.env` 파일 설정:
+   ```env
+   # 호스트 기본 볼륨 (공통 상위 디렉터리 마운트)
+   HOST_BASE_DIR=/volume1
 
-# 실시간 로그 확인
-sudo docker logs -f media-sorter
+   # 컨테이너 내부 경로 (/media 기준)
+   INPUT_DIR=/media/photo_inbox
+   TARGET_DIR=/media/photo
 
-# 중지
-sudo docker compose down
-```
+   # 하위 폴더명 및 옵션
+   RAW_DIR_NAME=RAW
+   JPG_DIR_NAME=JPG
+   VIDEO_DIR_NAME=Video
+   EXPORT_DIR_NAME=Export
+   CREATE_EXPORT_DIR=false
+   ```
+
+2. 실행 명령어:
+   ```bash
+   # 백그라운드 데몬 시작
+   sudo docker compose up -d --build
+
+   # 실시간 로그 확인
+   sudo docker logs -f media-sorter
+
+   # 중지
+   sudo docker compose down
+   ```
 
 ---
 
 ### 2. 일회성(oneshot) 제자리 정리 실행 (`docker run`)
 
 특정 미디어 폴더 내부에서 파일들을 **해당 폴더 직하에서 바로 제자리(in-place) 분류 및 리네이밍**합니다.  
-`yymmdd` 서브폴더를 새로 생성하지 않으며, `TARGET_DIR` 설정 없이 대상 폴더를 `/input` 하나만 마운트하여 실행합니다.
+`yyyy/yyyy-mm-dd` 서브폴더를 새로 생성하지 않고, 직하에 `RAW/`, `JPG/`, `Video/` 폴더를 생성하여 분류합니다.  
+컨테이너 실행 시 대상 폴더를 **`/input`으로 단일 마운트 강제**합니다 (`-v {원본 폴더}:/input`).
 
 - **기본 탐색 범위**: 루트 바로 아래의 파일만 **1단계**로 탐색 (기존 하위 폴더 제외).
-- **`-r, --recursive`**: 하위 디렉터리까지 재귀 탐색 (단, 이미 생성된 `raw`, `movie`, `yymmdd` 폴더는 중복 방지를 위해 자동 제외되며, 하위 폴더 내부에서도 `yymmdd`를 만들지 않고 해당 하위 폴더 직하에서 작업).
-- **`--no-settle`**: 전송이 이미 끝난 로컬 디렉터리의 경우 복사 완료 안정화 대기(기본 30초)를 건너뛰고 **초고속 즉시 실행**.
-- **`--dry-run`**: 파일을 실제로 이동하지 않고 Settle Check 없이 `[DRY-RUN] src -> dst` 계획과 통계 요약만 즉시 출력.
+- **`-r, --recursive`**: 하위 디렉터리까지 재귀 탐색 (단, 이미 생성된 `RAW`, `JPG`, `Video`, `Export` 및 날짜 폴더는 자동 제외).
+- **`--no-settle`**: 전송이 이미 끝난 로컬 디렉터리의 경우 복사 완료 대기(기본 30초)를 건너뛰고 **초고속 즉시 실행**.
+- **`--dry-run`**: 파일을 실제로 이동하지 않고 `[DRY-RUN] src -> dst` 계획과 통계 요약만 즉시 출력.
 
 ```bash
 # [추천] 1단계 탐색 Dry-run (이동 없이 계획 및 요약만 확인)
@@ -63,75 +86,68 @@ sudo docker run --rm --env-file .env \
   media-sorter python -m src.main oneshot -r
 ```
 
-## 분류 규칙
+---
 
-하위 폴더 이름(`raw`, `movie`)은 환경 변수 `RAW_DIR_NAME`, `MOVIE_DIR_NAME`으로 변경할 수 있습니다.
+## 디렉터리 구조 및 분류 규칙
+
+### 디렉터리 구조 예시 (데몬 모드)
+```text
+{TARGET_DIR}/
+└── 2026/
+    └── 2026-10-07/
+        ├── RAW/       # RAW 파일 및 사이드카 (.xmp, .xml 등)
+        ├── JPG/       # 일반 사진 (JPG, HEIC, PNG 등)
+        ├── Video/     # 동영상 (MP4, MOV 등)
+        └── Export/    # (선택) CREATE_EXPORT_DIR=true 일 때 생성
+```
+
+### 분류 규칙 테이블
+
+하위 폴더 이름(`RAW`, `JPG`, `Video`, `Export`)은 환경 변수로 변경할 수 있습니다.
 
 | 종류 | 확장자 | 데몬 위치 (TARGET 기준) | 일회성(oneshot) 위치 (현재 폴더 기준) |
 |---|---|---|---|
-| 사진 | JPG, JPEG, HEIC, PNG | `{yymmdd}/` | `{현재폴더}/` |
-| 영상 | MP4, MOV, M4V, AVI | `{yymmdd}/{movie}/` | `{현재폴더}/{movie}/` |
-| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{yymmdd}/{raw}/` | `{현재폴더}/{raw}/` |
-| 기타(미지원) | 그 외 | `{yymmdd}/` (원본 파일명 유지) | `{현재폴더}/` (원본 파일명 유지) |
+| 사진 | JPG, JPEG, HEIC, PNG | `{yyyy}/{yyyy-mm-dd}/{JPG_DIR_NAME}/` | `{현재폴더}/{JPG_DIR_NAME}/` |
+| 영상 | MP4, MOV, M4V, AVI | `{yyyy}/{yyyy-mm-dd}/{VIDEO_DIR_NAME}/` | `{현재폴더}/{VIDEO_DIR_NAME}/` |
+| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{yyyy}/{yyyy-mm-dd}/{RAW_DIR_NAME}/` | `{현재폴더}/{RAW_DIR_NAME}/` |
+| 사이드카 | XMP, XML, AAE, ON1 | 메인 미디어와 동일 폴더 (RAW 파일의 경우 `RAW/`) | 메인 미디어와 동일 폴더 |
+| Export | - | `CREATE_EXPORT_DIR=true` 시 날짜 폴더 내 빈 폴더 생성 | `CREATE_EXPORT_DIR=true` 시 현재 폴더 내 빈 폴더 생성 |
+| 기타(미지원) | 그 외 | `{yyyy}/{yyyy-mm-dd}/` (원본 파일명 유지) | `{현재폴더}/` (원본 파일명 유지) |
 
 - **일시**: 사진/RAW `DateTimeOriginal`(→`CreateDate`), 영상 `CreateDate`→`MediaCreateDate`, 없으면 `st_mtime`.
   영상의 QuickTime UTC 시각은 `TZ` 기준 로컬 시각으로 변환됩니다.
 - **파일명 형식**:
-  - **사진/RAW**: `{yymmdd}-{hhmmss}-{고유번호}.{ext}`
+  - **사진/RAW**: `{yymmdd}-{hhmmss}-{고유번호/시퀀스}.{ext}`
     - 고유번호: `FileIndex` → `ImageNumber` → `ShutterCount` → 파일명 마지막 연속 숫자 (4자리 정규화, 없으면 동일 초 내 `001`, `002`… 시퀀스).
-  - **영상**: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 없음, 초 단위 일치 가능성이 희박함).
-  - **사이드카 파일**: `.xml`, `.xmp`, `.aae`, `.on1` 등의 부속 파일도 메인 미디어와 동일한 새 이름으로 변경되어 해당 폴더로 함께 이동됩니다 (RAW 사이드카는 `raw` 폴더로 함께 이동).
+  - **영상**: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 제외, 초 단위 일치 가능성이 희박함).
+  - **사이드카 파일**: `.xml`, `.xmp`, `.aae`, `.on1` 등의 부속 파일도 메인 미디어와 동일한 새 이름으로 변경되어 해당 폴더로 함께 이동됩니다 (RAW 사이드카는 `RAW/` 폴더로 함께 이동).
 - **충돌 방지**: 대상에 같은 이름이 있으면 ① `-{카메라모델}` 추가 시도 → ② `_1`, `_2` 서픽스. 덮어쓰기는 절대 하지 않습니다.
-- **무시 대상**: `@eaDir`, `.raw`, `raw`, `movie`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.
+- **무시 대상**: `@eaDir`, `.raw`, `RAW`, `JPG`, `Video`, `Export`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.
 - 이동 후 비게 된 INPUT 하위 폴더는 정리합니다 (INPUT 루트 및 결과 분류 폴더 유지).
 
-## 복사 완료 검증
+---
 
-15초마다 폴링 → 파일의 size/mtime 이 **2회 연속 동일** + **30초 이상 무변경**(단조 시계 및 mtime 경과 모두)일 때만
-안정화로 판정. 안정화된 파일군을 배치로 ExifTool 파싱 후 이동하며, **이동 직전 size/mtime 을 한 번 더 확인**합니다.
+## 복사 완료 검증 (Settle Check)
 
-## 원자적 이동
+폴링 주기마다 파일의 size/mtime 이 **2회 연속 동일** + **안정화 시간(기본 30초) 이상 무변경**일 때만 안정화로 판정합니다.  
+안정화된 파일군을 배치 단위로 ExifTool을 통해 병렬 파싱 후 이동하며, 이동 직전 size/mtime을 재검증합니다.
 
-1. 같은 파일시스템: `os.link` + `unlink` (대상 존재 시 원자적으로 실패 → 무음 덮어쓰기 방지)
-2. 다른 파일시스템(컨테이너의 서로 다른 바인드 마운트는 대부분 해당): 대상 폴더에 `.tmp` 로 복사 → `fsync` → 크기 검증 → `link` 로 공개 → 원본 삭제.
-   복사 중간 상태 파일은 숨김 `.tmp` 라서 Photos 에 불완전 파일이 노출되지 않습니다.
+---
 
-> 두 바인드 마운트는 같은 볼륨이어도 컨테이너에서 서로 다른 장치로 보여 즉시 rename 이 불가능할 수 있습니다.
-> 대용량 영상은 복사 시간이 소요되니 참고하세요.
-
-## UID/GID 확인
-
-DSM 제어판 → 터미널 및 SNMP → SSH 활성화 후:
+## 배포 및 설정 (Docker / Container Manager)
 
 ```bash
-ssh 사용자명@NAS_IP
-id
-# uid=1026(username) gid=100(users) groups=100(users),101(administrators)
-```
-
-`uid` → `PUID`, `gid` → `PGID`.
-
-## 배포 (Container Manager / SSH)
-
-```bash
-# 1) 프로젝트 폴더를 NAS 에 업로드 (예: /volume1/docker/media-sorter)
+# 1) 프로젝트 폴더 준비
 cd /volume1/docker/media-sorter
-cp .env.example .env && vi .env      # PUID/PGID/경로 수정
+cp .env.example .env && vi .env      # PUID/PGID 및 HOST_BASE_DIR 설정
 
 # 2) 빌드 및 실행
 sudo docker compose up -d --build
 
-# 3) 로그 확인 ([INFO] / [MOVE] / [ERROR])
+# 3) 실시간 로그 확인
 sudo docker logs -f media-sorter
 ```
 
-Container Manager UI: 프로젝트 → 생성 → 경로에 위 폴더 선택 → `docker-compose.yml` 사용.
-
-### 권한 체크리스트
-- `PUID` 계정이 INPUT/TARGET 공유폴더에 **읽기/쓰기** 권한 보유(INPUT은 파일 삭제 권한 필요).
-- 경로(`HOST_*`)는 실제 존재해야 하며 없으면 컨테이너가 오류 로그 후 종료됩니다.
-- Multi-platform 빌드 예: `docker buildx build --platform linux/amd64,linux/arm64 -f docker/Dockerfile -t media-sorter .`
-
-## 문제 해결
-- 파일이 안 움직임: `docker logs` 확인. 전송 중이거나 mtime 이 최근이면 대기합니다.
-- 상세 로그: `.env` 에 `LOG_LEVEL=DEBUG`.
+### 권한 및 계정 확인
+DSM SSH에서 `id` 명령어로 `uid`, `gid`를 확인하여 `.env`의 `PUID`, `PGID`에 지정합니다.  
+해당 사용자는 `INPUT_DIR`과 `TARGET_DIR`에 대한 **읽기/쓰기/삭제** 권한을 보유해야 합니다.

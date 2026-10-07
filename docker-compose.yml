@@ -12,16 +12,19 @@ services:
     env_file: .env
     environment:
       TZ: ${TZ:-Asia/Seoul}
-      INPUT_DIR: ${INPUT_DIR:-/input}
-      TARGET_DIR: ${TARGET_DIR:-/photos}
+      INPUT_DIR: ${INPUT_DIR:-/media/photo_inbox}
+      TARGET_DIR: ${TARGET_DIR:-/media/homes/username/Photos}
       CHECK_INTERVAL: ${CHECK_INTERVAL:-15}
       SETTLE_THRESHOLD: ${SETTLE_THRESHOLD:-30}
       STABLE_ROUNDS: ${STABLE_ROUNDS:-2}
-      RAW_DIR_NAME: ${RAW_DIR_NAME:-raw}
-      MOVIE_DIR_NAME: ${MOVIE_DIR_NAME:-movie}
+      RAW_DIR_NAME: ${RAW_DIR_NAME:-RAW}
+      JPG_DIR_NAME: ${JPG_DIR_NAME:-JPG}
+      VIDEO_DIR_NAME: ${VIDEO_DIR_NAME:-Video}
+      EXPORT_DIR_NAME: ${EXPORT_DIR_NAME:-Export}
+      CREATE_EXPORT_DIR: ${CREATE_EXPORT_DIR:-false}
     volumes:
-      - ${HOST_INPUT_DIR}:${INPUT_DIR:-/input}
-      - ${HOST_TARGET_DIR}:${TARGET_DIR:-/photos}
+      # 동일 볼륨 즉시 이동(os.rename)을 보장하기 위해 상위 공통 볼륨을 /media 로 단일 마운트
+      - ${HOST_BASE_DIR:-/volume1}:/media
     logging:
       driver: json-file
       options:

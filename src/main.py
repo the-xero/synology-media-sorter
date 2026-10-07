@@ -57,11 +57,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.error("exiftool 바이너리를 찾을 수 없습니다.")
         return 2
 
-    # oneshot 모드는 INPUT_DIR 하나만 사용 (in-place 정렬: target_dir = input_dir)
+    # oneshot 모드는 -v {대상폴더}:/input 단일 마운트를 기준으로 in-place 정렬 강제
     if args.command == "oneshot":
-        cfg = dataclasses.replace(cfg, target_dir=cfg.input_dir)
+        container_input = Path("/input")
+        target_path = container_input if container_input.is_dir() else cfg.input_dir
+        cfg = dataclasses.replace(cfg, input_dir=target_path, target_dir=target_path)
         if not cfg.input_dir.is_dir():
-            logger.error("디렉터리가 존재하지 않습니다(마운트 확인): %s", cfg.input_dir)
+            logger.error(
+                "디렉터리가 존재하지 않습니다. Docker 실행 시 '-v {대상폴더}:/input' 마운트를 확인해주세요: %s",
+                cfg.input_dir,
+            )
             return 2
     else:
         for d in (cfg.input_dir, cfg.target_dir):

@@ -96,7 +96,7 @@ def find_sidecars(media_path: Path, dir_files: Optional[Set[str]] = None) -> Lis
     return sidecars
 
 
-_DATE_DIR_RE = re.compile(r"^\d{6}$")
+_DATE_DIR_RE = re.compile(r"^\d{4}$|^\d{4}-\d{2}-\d{2}$|^\d{6}$")
 
 
 def iter_input_files(

@@ -88,11 +88,11 @@ def atomic_move(src: Path, dst: Path) -> None:
             tmp.unlink(missing_ok=True)
 
 
-_DATE_DIR_RE = re.compile(r"^\d{6}$")
+_DATE_DIR_RE = re.compile(r"^\d{4}$|^\d{4}-\d{2}-\d{2}$|^\d{6}$")
 
 
 def cleanup_empty_dirs(cfg: Config) -> None:
-    """INPUT 하위의 빈 디렉터리를 정리한다 (루트/제외 폴더/결과 날짜 폴더 유지).
+    """INPUT 하위의 빈 디렉터리를 정리한다 (루트/제외 폴더/결과 분류 폴더 유지).
 
     Why: 복사 직후 생성된 빈 폴더를 지우면 진행 중인 전송이 깨질 수 있으므로
     수정 시각이 SETTLE_THRESHOLD 이상 지난 폴더만 삭제한다.
@@ -101,13 +101,17 @@ def cleanup_empty_dirs(cfg: Config) -> None:
         cfg: 설정.
     """
     now = time.time()
+    protected_names = {
+        cfg.raw_dir_name, cfg.jpg_dir_name, cfg.video_dir_name, cfg.export_dir_name,
+        "RAW", "JPG", "Video", "Export", "raw", "movie", ".raw",
+    }
     for dirpath, _dirnames, _ in os.walk(cfg.input_dir, topdown=False):
         p = Path(dirpath)
         if (
             p == cfg.input_dir
             or p.name in EXCLUDED_DIRS
             or _DATE_DIR_RE.match(p.name)
-            or p.name in (cfg.movie_dir_name, cfg.raw_dir_name, ".raw")
+            or p.name in protected_names
         ):
             continue
         try:
@@ -185,6 +189,16 @@ def process_batch(
                 continue
             atomic_move(m.path, dst)
             touched_parents.add(dst.parent)
+
+            # Export 폴더 생성 옵션 처리
+            if cfg.create_export_dir:
+                export_root = m.path.parent if inplace else dst.parent.parent
+                export_path = export_root / cfg.export_dir_name
+                try:
+                    export_path.mkdir(parents=True, exist_ok=True)
+                    touched_parents.add(export_path)
+                except OSError as exp_err:
+                    logger.debug("Export 디렉터리 생성 실패: %s (%s)", export_path, exp_err)
 
             # 연결된 사이드카 파일도 함께 이동
             for ssrc, sdst in sidecar_plan:

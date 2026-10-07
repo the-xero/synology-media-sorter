@@ -64,7 +64,10 @@ def run_oneshot(
         "oneshot 시작: input=%s (in-place) dry_run=%s recursive=%s no_settle=%s",
         cfg.input_dir, dry_run, recursive, no_settle,
     )
-    extra_excluded = {cfg.raw_dir_name, cfg.movie_dir_name, "raw", "movie", ".raw"}
+    extra_excluded = {
+        cfg.raw_dir_name, cfg.jpg_dir_name, cfg.video_dir_name, cfg.export_dir_name,
+        "RAW", "JPG", "Video", "Export", "raw", "movie", ".raw",
+    }
     files = list(iter_input_files(
         cfg.input_dir, recursive=recursive, skip_date_dirs=True, extra_excluded_dirs=extra_excluded,
     ))

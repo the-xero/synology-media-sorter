@@ -19,8 +19,11 @@ VIDEO_EXTS: Set[str] = {"mp4", "mov", "m4v", "avi"}
 RAW_EXTS: Set[str] = {"cr2", "cr3", "nef", "arw", "dng", "raf", "rw2", "orf"}
 SIDECAR_EXTS: Set[str] = {"xmp", "xml", "aae", "on1"}
 
-# 탐색에서 완전히 제외할 디렉터리 (Synology 메타/휴지통 및 레거시/임시 폴더)
-EXCLUDED_DIRS: Set[str] = {"@eaDir", ".raw", "#recycle", "@tmp", "#snapshot"}
+# 탐색에서 완전히 제외할 디렉터리 (Synology 메타/휴지통 및 결과 분류 폴더)
+EXCLUDED_DIRS: Set[str] = {
+    "@eaDir", ".raw", "RAW", "JPG", "Video", "Export", "raw", "movie",
+    "#recycle", "@tmp", "#snapshot",
+}
 # 전송 중/임시/시스템 파일은 무시 (원본 그대로 유지)
 IGNORED_NAMES: Set[str] = {".ds_store", "thumbs.db", "desktop.ini"}
 IGNORED_SUFFIXES: Tuple[str, ...] = (
@@ -52,6 +55,11 @@ class Config:
         check_interval: 폴링 주기(초).
         settle_threshold: 변경 없이 유지되어야 하는 최소 시간(초).
         stable_rounds: 동일 상태가 연속 유지되어야 하는 폴링 횟수.
+        raw_dir_name: RAW 파일 폴더명 (기본 RAW).
+        jpg_dir_name: 사진 파일 폴더명 (기본 JPG).
+        video_dir_name: 영상 파일 폴더명 (기본 Video).
+        export_dir_name: 내보내기 폴더명 (기본 Export).
+        create_export_dir: Export 폴더 생성 여부 (기본 False).
     """
 
     input_dir: Path
@@ -59,8 +67,11 @@ class Config:
     check_interval: float
     settle_threshold: float
     stable_rounds: int
-    raw_dir_name: str = "raw"
-    movie_dir_name: str = "movie"
+    raw_dir_name: str = "RAW"
+    jpg_dir_name: str = "JPG"
+    video_dir_name: str = "Video"
+    export_dir_name: str = "Export"
+    create_export_dir: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -72,6 +83,16 @@ class Config:
         Raises:
             ValueError: 숫자 변환 실패 또는 값 범위 오류.
         """
+        raw_dir = os.environ.get("RAW_DIR_NAME", "RAW").strip() or "RAW"
+        jpg_dir = os.environ.get("JPG_DIR_NAME", "JPG").strip() or "JPG"
+        video_dir = (
+            os.environ.get("VIDEO_DIR_NAME") or os.environ.get("MOVIE_DIR_NAME", "Video")
+        ).strip() or "Video"
+        export_dir = os.environ.get("EXPORT_DIR_NAME", "Export").strip() or "Export"
+        create_export = os.environ.get("CREATE_EXPORT_DIR", "false").strip().lower() in (
+            "true", "1", "yes",
+        )
+
         try:
             cfg = cls(
                 input_dir=Path(os.environ.get("INPUT_DIR", "/input")),
@@ -79,8 +100,11 @@ class Config:
                 check_interval=float(os.environ.get("CHECK_INTERVAL", "15")),
                 settle_threshold=float(os.environ.get("SETTLE_THRESHOLD", "30")),
                 stable_rounds=int(os.environ.get("STABLE_ROUNDS", "2")),
-                raw_dir_name=os.environ.get("RAW_DIR_NAME", "raw").strip() or "raw",
-                movie_dir_name=os.environ.get("MOVIE_DIR_NAME", "movie").strip() or "movie",
+                raw_dir_name=raw_dir,
+                jpg_dir_name=jpg_dir,
+                video_dir_name=video_dir,
+                export_dir_name=export_dir,
+                create_export_dir=create_export,
             )
         except ValueError as exc:
             raise ValueError(f"환경 변수 숫자 형식 오류: {exc}") from exc

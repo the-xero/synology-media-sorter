@@ -36,13 +36,13 @@ def safe_token(text: str) -> str:
 def dest_dir_for(cfg: Config, m: MediaFile, inplace: bool = False) -> Path:
     """분류 규칙에 따른 대상 디렉터리를 반환한다.
 
-    - inplace (oneshot): 현재 파일이 위치한 디렉터리 직하에 raw/movie 생성 (yymmdd 생략).
-    - non-inplace (daemon): TARGET_DIR/{yymmdd}[/raw|movie] 구조로 생성.
+    - inplace (oneshot): 현재 파일 위치 직하에 RAW/JPG/Video 생성.
+    - non-inplace (daemon): TARGET_DIR/{yyyy}/{yyyy-mm-dd}/{RAW|JPG|Video} 구조로 생성.
 
     Args:
         cfg: 설정.
         m: 파싱된 미디어.
-        inplace: True 면 yymmdd 폴더 생성 없이 현재 위치 기준 분류.
+        inplace: True 면 날짜 폴더 생성 없이 현재 위치 기준 분류.
 
     Returns:
         대상 디렉터리 경로.
@@ -50,16 +50,24 @@ def dest_dir_for(cfg: Config, m: MediaFile, inplace: bool = False) -> Path:
     if inplace:
         base = m.path.parent
         if m.kind == "video":
-            return base / cfg.movie_dir_name
+            return base / cfg.video_dir_name
         if m.kind == "raw":
             return base / cfg.raw_dir_name
+        if m.kind == "photo":
+            return base / cfg.jpg_dir_name
         return base
 
-    base = cfg.target_dir / m.stamp.strftime("%y%m%d")
+    # 데몬 모드: {TARGET}/{yyyy}/{yyyy-mm-dd}/
+    year_str = m.stamp.strftime("%Y")
+    date_str = m.stamp.strftime("%Y-%m-%d")
+    base = cfg.target_dir / year_str / date_str
+
     if m.kind == "video":
-        return base / cfg.movie_dir_name
+        return base / cfg.video_dir_name
     if m.kind == "raw":
         return base / cfg.raw_dir_name
+    if m.kind == "photo":
+        return base / cfg.jpg_dir_name
     return base
 
 
