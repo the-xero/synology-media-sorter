@@ -2,21 +2,25 @@
 
 카메라 기종별 EXIF Model 문자열(예: 'Canon EOS R6 Mark II', 'ILCE-7M4')을
 짧고 직관적인 식별자('R6M2', 'A7M4')로 축약한다.
-사용자 정의 'camera_map.json' 파일을 최우선 적용하며,
+사용자 정의 'config/camera_map.json' 파일을 최우선 적용하며,
 미등록 기기는 제조사별 정규식 및 규칙을 기반으로 자동 축약한다.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Dict, Optional
 
 logger = logging.getLogger("sorter")
 
-# 기본 camera_map.json 경로 (프로젝트 루트 기준)
-DEFAULT_CAMERA_MAP_PATH = Path("camera_map.json")
+# 기본 camera_map.json 검색 경로 순서
+DEFAULT_CAMERA_MAP_PATHS = [
+    Path("config/camera_map.json"),
+    Path("camera_map.json"),
+]
 
 # 로마 숫자 Mark 표기 변환 매핑
 _MARK_REPLACEMENTS = [
@@ -31,28 +35,47 @@ _MARK_REPLACEMENTS = [
 def load_camera_map(map_path: Optional[Path] = None) -> Dict[str, str]:
     """사용자 정의 카메라 매핑 JSON 파일을 로드한다.
 
+    1) map_path 인자 지정 시 해당 경로만 확인
+    2) 미지정 시 환경 변수 CAMERA_MAP_PATH 및 기본 경로(config/camera_map.json 등) 순차 탐색
+    3) 파일 부재 시 경고 없이 빈 딕셔너리 반환 (내장 자동 축약 규칙으로 안전 폴백)
+
     Args:
-        map_path: JSON 파일 경로. 미지정 시 기본 'camera_map.json' 조회.
+        map_path: 특정 JSON 파일 경로 (선택).
 
     Returns:
         {원본 모델명: 짧은 식별코드} 딕셔너리. 파일 부재 시 빈 딕셔너리.
     """
-    path = map_path or DEFAULT_CAMERA_MAP_PATH
-    if not path.is_file():
+    if map_path is not None:
+        candidates = [map_path]
+    else:
+        candidates = []
+        env_path = os.environ.get("CAMERA_MAP_PATH")
+        if env_path:
+            candidates.append(Path(env_path))
+        candidates.extend(DEFAULT_CAMERA_MAP_PATHS)
+
+    target: Optional[Path] = None
+    for cand in candidates:
+        if cand.is_file():
+            target = cand
+            break
+
+    if target is None:
+        logger.debug("사용자 정의 camera_map.json 없음 -> 내장 자동 축약 규칙 사용")
         return {}
 
     try:
-        with open(path, "r", encoding="utf-8") as fin:
+        with open(target, "r", encoding="utf-8") as fin:
             data = json.load(fin)
             if isinstance(data, dict):
-                # 주석성 키(_로 시작) 제외 및 strip 처리
+                logger.info("카메라 매핑 로드 완료: %s (%d개 모델 등록)", target, len(data))
                 return {
                     str(k).strip(): str(v).strip()
                     for k, v in data.items()
                     if not str(k).startswith("_")
                 }
     except Exception as exc:
-        logger.warning("camera_map.json 로드 실패 (%s): %s", path, exc)
+        logger.warning("camera_map.json 로드 실패 (%s): %s", target, exc)
     return {}
 
 
