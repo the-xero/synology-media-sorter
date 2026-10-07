@@ -10,7 +10,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY src/sorter.py /app/sorter.py
+COPY src/ /app/src/
 
 # 실행 UID:GID 는 docker-compose 의 user 로 주입 (PUID/PGID)
-CMD ["python", "/app/sorter.py"]
+# 서브커맨드 기본값은 daemon. oneshot 은 `docker run ... media-sorter python -m src.main oneshot --dry-run`
+CMD ["python", "-m", "src.main", "daemon"]

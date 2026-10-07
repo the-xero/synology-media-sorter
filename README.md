@@ -3,6 +3,22 @@
 Synology DSM(Btrfs)용 미디어 자동 분류/리네이밍 데몬. 수신 폴더의 복사 완료 파일을
 EXIF 일시 기준으로 `{TARGET}/{yymmdd}/` 에 `{yymmdd}-{hhmmss}-{고유번호}.{ext}` 로 이동합니다.
 
+## 실행 모드
+
+`python -m src.main <subcommand>` (공통 코어 모듈: `config`, `exif`, `classifier`, `mover`, `settle`).
+
+| 서브커맨드 | 동작 |
+|---|---|
+| `daemon` | INPUT_DIR 상시 폴링, Settle Check 통과 파일 처리 (compose 기본) |
+| `oneshot` | INPUT_DIR 전체 1회 처리 후 종료. 실제 실행 시 Settle Check 적용(`--max-wait` 초과 파일은 스킵) |
+| `oneshot --dry-run` | Settle Check 없이 `[DRY-RUN] src -> dst` 계획과 요약(총/이동예정/스킵/오류)만 출력. 이동·빈 폴더 정리 없음 |
+
+```bash
+# 일회성 실행 예 (dry-run)
+sudo docker run --rm --env-file .env -v /volume1/photo_inbox:/input -v /volume1/homes/username/Photos:/photos \
+  media-sorter python -m src.main oneshot --dry-run
+```
+
 ## 분류 규칙
 
 | 종류 | 확장자 | 위치 |

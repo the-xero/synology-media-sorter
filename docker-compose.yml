@@ -6,6 +6,7 @@ services:
     image: media-sorter:latest
     container_name: media-sorter
     restart: unless-stopped
+    command: ["python", "-m", "src.main", "daemon"]
     # Synology 계정 권한으로 실행해야 생성 파일 소유권이 올바름
     user: "${PUID:-1026}:${PGID:-100}"
     env_file: .env
