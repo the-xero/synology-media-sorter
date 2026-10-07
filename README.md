@@ -5,18 +5,61 @@ EXIF 일시 기준으로 `{TARGET}/{yymmdd}/` 에 `{yymmdd}-{hhmmss}-{고유번�
 
 ## 실행 모드
 
-`python -m src.main <subcommand>` (공통 코어 모듈: `config`, `exif`, `classifier`, `mover`, `settle`).
+코어 로직 모듈(`config`, `exif`, `classifier`, `mover`, `settle`)을 기반으로 두 가지 서브커맨드를 지원합니다:
 
-| 서브커맨드 | 동작 |
-|---|---|
-| `daemon` | INPUT_DIR 상시 폴링, Settle Check 통과 파일 처리 (compose 기본) |
-| `oneshot` | INPUT_DIR 전체 1회 처리 후 종료. 실제 실행 시 Settle Check 적용(`--max-wait` 초과 파일은 스킵) |
-| `oneshot --dry-run` | Settle Check 없이 `[DRY-RUN] src -> dst` 계획과 요약(총/이동예정/스킵/오류)만 출력. 이동·빈 폴더 정리 없음 |
+| 서브커맨드 | 주요 특징 및 대상 | 실행 방식 |
+|---|---|---|
+| `daemon` | 수신 폴더(`INPUT_DIR`) 상시 감시 → Settle Check 통과 시 대상 폴더(`TARGET_DIR`)로 이동 | `docker compose up -d` (기본값) |
+| `oneshot` | 지정 폴더(`INPUT_DIR`) 1회 스캔 → 내부 제자리(in-place) 날짜별 분류 및 리네이밍 (TARGET_DIR 불필요) | `docker run` 단독 실행 |
+
+---
+
+### 1. 상시 감시 데몬 실행 (`docker compose`)
+
+수신 전용 Inbox 폴더를 감시하여 완료된 파일을 최종 Photos 라이브러리로 지속 자동 이동합니다.
 
 ```bash
-# 일회성 실행 예 (dry-run)
-sudo docker run --rm --env-file .env -v /volume1/photo_inbox:/input -v /volume1/homes/username/Photos:/photos \
+# 백그라운드 데몬 시작 (docker-compose.yml 기본 명령어가 daemon)
+sudo docker compose up -d --build
+
+# 실시간 로그 확인
+sudo docker logs -f media-sorter
+
+# 중지
+sudo docker compose down
+```
+
+---
+
+### 2. 일회성(oneshot) 제자리 정리 실행 (`docker run`)
+
+특정 사진 폴더 내부에서 파일들을 날짜별 서브폴더(`{yymmdd}/`)로 **제자리(in-place) 분류 및 리네이밍**합니다.  
+`TARGET_DIR`을 따로 지정할 필요 없이 대상 폴더를 `/input` 하나만 마운트하여 실행합니다.
+
+- **기본 탐색 범위**: 루트 바로 아래의 파일만 **1단계**로 탐색 (기존 하위 날짜 폴더 제외).
+- **`-r, --recursive`**: 하위 디렉터리까지 재귀 탐색 (단, 이미 생성된 `yymmdd` 날짜 폴더는 중복 방지를 위해 자동 제외).
+- **`--dry-run`**: 파일을 실제로 이동하지 않고 Settle Check 없이 `[DRY-RUN] src -> dst` 계획과 통계 요약만 즉시 출력.
+
+```bash
+# [추천] 1단계 탐색 Dry-run (이동 없이 계획 및 요약만 확인)
+sudo docker run --rm --env-file .env \
+  -v /volume1/photo_inbox:/input \
   media-sorter python -m src.main oneshot --dry-run
+
+# [실제 실행] 1단계 탐색 제자리 이동
+sudo docker run --rm --env-file .env \
+  -v /volume1/photo_inbox:/input \
+  media-sorter python -m src.main oneshot
+
+# [재귀 탐색 Dry-run] 하위 폴더까지 포함하여 시뮬레이션
+sudo docker run --rm --env-file .env \
+  -v /volume1/photo_inbox:/input \
+  media-sorter python -m src.main oneshot --dry-run -r
+
+# [재귀 탐색 실제 실행] 하위 폴더까지 포함하여 제자리 이동
+sudo docker run --rm --env-file .env \
+  -v /volume1/photo_inbox:/input \
+  media-sorter python -m src.main oneshot -r
 ```
 
 ## 분류 규칙

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Set, Tuple
@@ -29,18 +30,41 @@ def is_ignored_file(name: str) -> bool:
     )
 
 
-def iter_input_files(root: Path) -> Iterator[Path]:
+_DATE_DIR_RE = re.compile(r"^\d{6}$")
+
+
+def iter_input_files(
+    root: Path, recursive: bool = True, skip_date_dirs: bool = False,
+) -> Iterator[Path]:
     """INPUT 트리를 순회한다. @eaDir, .raw 등은 진입 자체를 차단한다.
 
     Args:
         root: 수신 디렉터리.
+        recursive: True 면 하위 디렉터리 재귀 탐색, False 면 루트 직하 파일만 탐색.
+        skip_date_dirs: True 면 6자리 날짜 폴더(yymmdd) 탐색 제외(in-place 정렬 시 중복 방지).
 
     Yields:
         처리 후보 파일 경로.
     """
+    if not recursive:
+        try:
+            with os.scandir(root) as it:
+                for entry in it:
+                    if entry.is_file() and not is_ignored_file(entry.name):
+                        yield Path(entry.path)
+        except OSError as exc:
+            logger.error("디렉터리 스캔 실패: %s (%s)", root, exc)
+        return
+
     for dirpath, dirnames, filenames in os.walk(root):
-        # in-place 수정으로 하위 탐색 트리에서 제외 (숨김 디렉터리도 제외)
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS and not d.startswith(".")]
+        filtered: List[str] = []
+        for d in dirnames:
+            if d in EXCLUDED_DIRS or d.startswith("."):
+                continue
+            if skip_date_dirs and _DATE_DIR_RE.match(d):
+                continue
+            filtered.append(d)
+        dirnames[:] = filtered
         for fn in filenames:
             if not is_ignored_file(fn):
                 yield Path(dirpath) / fn

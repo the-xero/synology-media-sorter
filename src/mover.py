@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import errno
 import os
+import re
 import shutil
 import time
 import uuid
@@ -82,8 +83,11 @@ def atomic_move(src: Path, dst: Path) -> None:
             tmp.unlink(missing_ok=True)
 
 
+_DATE_DIR_RE = re.compile(r"^\d{6}$")
+
+
 def cleanup_empty_dirs(cfg: Config) -> None:
-    """INPUT 하위의 빈 디렉터리를 정리한다 (루트/제외 폴더 유지).
+    """INPUT 하위의 빈 디렉터리를 정리한다 (루트/제외 폴더/결과 날짜 폴더 유지).
 
     Why: 복사 직후 생성된 빈 폴더를 지우면 진행 중인 전송이 깨질 수 있으므로
     수정 시각이 SETTLE_THRESHOLD 이상 지난 폴더만 삭제한다.
@@ -94,7 +98,12 @@ def cleanup_empty_dirs(cfg: Config) -> None:
     now = time.time()
     for dirpath, _dirnames, _ in os.walk(cfg.input_dir, topdown=False):
         p = Path(dirpath)
-        if p == cfg.input_dir or p.name in EXCLUDED_DIRS:
+        if (
+            p == cfg.input_dir
+            or p.name in EXCLUDED_DIRS
+            or _DATE_DIR_RE.match(p.name)
+            or p.name in ("movie", ".raw")
+        ):
             continue
         try:
             if now - p.stat().st_mtime >= cfg.settle_threshold:
@@ -138,6 +147,16 @@ def process_batch(
     for m, dst in assign_names(cfg, items):
         rel_src = m.path.relative_to(cfg.input_dir)
         rel_dst = dst.relative_to(cfg.target_dir)
+
+        # 소스와 목적지가 이미 동일한 경우 불필요한 이동 방지
+        try:
+            if m.path.resolve() == dst.resolve():
+                logger.debug("이미 정렬된 위치 및 이름: %s", rel_src)
+                result.skipped += 1
+                continue
+        except OSError:
+            pass
+
         if dry_run:
             logger.info("[DRY-RUN] %s -> %s", rel_src, rel_dst)
             result.moved += 1

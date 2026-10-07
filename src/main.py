@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import shutil
 import signal
 import sys
@@ -22,11 +23,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="media-sorter", description="Synology 미디어 자동 분류/리네이밍")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    one = sub.add_parser("oneshot", help="INPUT_DIR 을 1회 처리하고 종료")
+    one = sub.add_parser("oneshot", help="INPUT_DIR 을 1회 처리하고 종료 (in-place 정렬)")
     one.add_argument("--dry-run", action="store_true",
                      help="이동 없이 계획만 출력 (Settle Check 생략)")
     one.add_argument("--max-wait", type=float, default=DEFAULT_MAX_WAIT,
                      help="안정화 대기 상한(초), 기본 %(default)s")
+    one.add_argument("-r", "--recursive", action="store_true",
+                     help="하위 폴더까지 재귀 탐색 (기본값: 루트 직하 1단계만 탐색)")
 
     sub.add_parser("daemon", help="INPUT_DIR 상시 감시 (Settle Check 기반)")
     return parser
@@ -51,10 +54,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     if shutil.which("exiftool") is None:
         logger.error("exiftool 바이너리를 찾을 수 없습니다.")
         return 2
-    for d in (cfg.input_dir, cfg.target_dir):
-        if not d.is_dir():
-            logger.error("디렉터리가 존재하지 않습니다(마운트 확인): %s", d)
+
+    # oneshot 모드는 INPUT_DIR 하나만 사용 (in-place 정렬: target_dir = input_dir)
+    if args.command == "oneshot":
+        cfg = dataclasses.replace(cfg, target_dir=cfg.input_dir)
+        if not cfg.input_dir.is_dir():
+            logger.error("디렉터리가 존재하지 않습니다(마운트 확인): %s", cfg.input_dir)
             return 2
+    else:
+        for d in (cfg.input_dir, cfg.target_dir):
+            if not d.is_dir():
+                logger.error("디렉터리가 존재하지 않습니다(마운트 확인): %s", d)
+                return 2
 
     stop = threading.Event()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -62,7 +73,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.command == "daemon":
         return run_daemon(cfg, stop)
-    return run_oneshot(cfg, args.dry_run, stop, args.max_wait)
+    return run_oneshot(cfg, args.dry_run, stop, args.max_wait, recursive=args.recursive)
 
 
 if __name__ == "__main__":

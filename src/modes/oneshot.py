@@ -38,21 +38,31 @@ def _log_summary(res: BatchResult, dry_run: bool) -> None:
 
 
 def run_oneshot(
-    cfg: Config, dry_run: bool, stop: threading.Event, max_wait: float = DEFAULT_MAX_WAIT,
+    cfg: Config,
+    dry_run: bool,
+    stop: threading.Event,
+    max_wait: float = DEFAULT_MAX_WAIT,
+    recursive: bool = False,
 ) -> int:
     """일회성 처리를 실행한다.
 
+    oneshot 은 INPUT_DIR 하나만 사용하여 대상 디렉터리도 INPUT_DIR 로 처리한다(in-place 정렬).
+
     Args:
-        cfg: 설정.
+        cfg: 설정 (target_dir 은 input_dir 과 동일하게 설정됨).
         dry_run: True 면 이동 없이 계획만 출력.
         stop: 설정되면 대기 루프를 중단하는 이벤트.
         max_wait: 실제 실행 시 안정화 대기 상한(초).
+        recursive: True 면 하위 디렉터리까지 재귀 탐색, False 면 루트 직하만 1단계 탐색.
 
     Returns:
         종료 코드 (오류 발생 시 1, 그 외 0).
     """
-    logger.info("oneshot 시작: input=%s target=%s dry_run=%s", cfg.input_dir, cfg.target_dir, dry_run)
-    files = list(iter_input_files(cfg.input_dir))
+    logger.info(
+        "oneshot 시작: input=%s (in-place) dry_run=%s recursive=%s",
+        cfg.input_dir, dry_run, recursive,
+    )
+    files = list(iter_input_files(cfg.input_dir, recursive=recursive, skip_date_dirs=True))
     total = BatchResult()
 
     if dry_run:
@@ -70,7 +80,7 @@ def run_oneshot(
         if stable:
             total.merge(process_batch(cfg, stable, tracker.snapshot, on_moved=tracker.forget))
         # 이동된 파일은 제외하고 다시 탐색 (이동 중 새로 도착한 파일도 포함)
-        pending = list(iter_input_files(cfg.input_dir))
+        pending = list(iter_input_files(cfg.input_dir, recursive=recursive, skip_date_dirs=True))
         if not pending:
             break
         if time.monotonic() >= deadline:
