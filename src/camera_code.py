@@ -45,8 +45,12 @@ def load_camera_map(map_path: Optional[Path] = None) -> Dict[str, str]:
         with open(path, "r", encoding="utf-8") as fin:
             data = json.load(fin)
             if isinstance(data, dict):
-                # 대소문자 무관 검색을 위해 strip 처리
-                return {str(k).strip(): str(v).strip() for k, v in data.items()}
+                # 주석성 키(_로 시작) 제외 및 strip 처리
+                return {
+                    str(k).strip(): str(v).strip()
+                    for k, v in data.items()
+                    if not str(k).startswith("_")
+                }
     except Exception as exc:
         logger.warning("camera_map.json 로드 실패 (%s): %s", path, exc)
     return {}

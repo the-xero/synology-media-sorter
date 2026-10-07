@@ -25,8 +25,8 @@ services:
     volumes:
       # 동일 볼륨 즉시 이동(os.rename)을 보장하기 위해 상위 공통 볼륨을 /media 로 단일 마운트
       - ${HOST_BASE_DIR:-/volume1}:/media
-      # 사용자 정의 카메라 기기식별코드 매핑 파일 (필요 시 활성화)
-      # - ./camera_map.json:/app/camera_map.json:ro
+      # 사용자 정의 카메라 기기식별코드 매핑 파일 (호스트에서 직접 수정 가능)
+      - ./camera_map.json:/app/camera_map.json:ro
     logging:
       driver: json-file
       options:

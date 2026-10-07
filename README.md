@@ -125,12 +125,16 @@ sudo docker run --rm --env-file .env \
     - 기기식별코드 존재 시: `{yymmdd}-{hhmmss}-{기기코드}.{ext}` (예: `261007-143000-A7M4.MP4`)
     - 기기식별코드 부재 시: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 제외, 초 단위 일치 가능성이 희박함).
   - **기기식별코드 축약 규칙**:
-    - 기본 내장 룰셋 자동 축약:
+    - 기본 내장 룰셋 및 `camera_map.json` 사전 등록 기기:
       - Canon: `Canon EOS ` 제거, `Mark IV`→`M4`, `Mark III`→`M3`, `Mark II`→`M2` (예: `Canon EOS R6 Mark II` → `R6M2`, `Canon EOS R5` → `R5`)
-      - Sony: `ILCE-` → `A` (예: `ILCE-7M4` → `A7M4`, `ILCE-7RM5` → `A7RM5`, `ILCE-1` → `A1`)
+      - Sony: `ILCE-` → `A` (예: `ILCE-7M4` → `A7M4`, `ILCE-7RM5` → `A7RM5`, `ILCE-1` → `A1`), `ZV-E1` → `ZVE1`
       - Nikon: `NIKON ` 제거, `_2`/` II` → `M2` (예: `NIKON Z 8` → `Z8`, `NIKON Z 6 II` → `Z6M2`)
-      - Apple iPhone: 특수문자/공백 제거 (예: `iPhone 15 Pro` → `iPhone15Pro`)
-    - 사용자 정의 매핑: 프로젝트 루트의 `camera_map.json` 파일에 `{ "원본모델명": "원하는코드" }` 형태로 직접 지정 가능 (미지정 시 자동 룰셋 적용).
+      - DJI 드론/액션캠: `DJI Mini 4 Pro`/`FC3582` → `Mini4Pro`, `DJI Air 3` → `Air3`, `Mavic 3 Pro` → `Mavic3Pro`, `Pocket 3` → `Pocket3`, `Action 5 Pro` → `Action5Pro`
+      - Samsung Galaxy: `SM-S928N`/`Galaxy S24 Ultra` → `S24Ultra`, `Galaxy S23` → `S23`, `Z Fold6` → `ZFold6`, `Z Flip6` → `ZFlip6`
+      - Sony Xperia: `XQ-EC72`/`Xperia 1 VI` → `Xperia1VI`, `Xperia 5 V` → `Xperia5V`
+      - Apple iPhone: `iPhone 16 Pro Max` → `IP16PM`, `iPhone 15 Pro` → `IP15P`, `iPhone 14` → `IP14`
+      - GoPro / 기타: `HERO13 Black` → `Hero13`, `Insta360 X4` → `InstaX4`
+    - 사용자 정의 매핑: 프로젝트 루트의 `camera_map.json` 파일에 `{ "원본모델명": "원하는코드" }` 형태로 언제든지 추가/변경 가능.
   - **사이드카 파일**: `.xml`, `.xmp`, `.aae`, `.on1` 등의 부속 파일도 메인 미디어와 동일한 새 이름으로 변경되어 해당 폴더로 함께 이동됩니다 (RAW 사이드카는 `RAW/` 폴더로 함께 이동).
 - **충돌 방지**: 대상에 같은 이름이 있으면 `_1`, `_2` 서픽스를 순차 부여합니다 (덮어쓰기는 절대 하지 않습니다).
 - **무시 대상**: `@eaDir`, `.raw`, `RAW`, `JPG`, `Video`, `Export`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.

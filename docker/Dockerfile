@@ -11,6 +11,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY src/ /app/src/
+COPY camera_map.json /app/camera_map.json
 
 # 사용자 계정(PUID/PGID)으로 실행 시 패키지 및 모듈 읽기/탐색 권한 보장
 RUN chmod -R a+rX /app
