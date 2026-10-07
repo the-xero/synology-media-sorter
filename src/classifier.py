@@ -6,6 +6,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from .camera_code import load_camera_map, shorten_model_name
 from .config import PHOTO_EXTS, RAW_EXTS, VIDEO_EXTS, Config
 from .models import MediaFile
 
@@ -72,20 +73,29 @@ def dest_dir_for(cfg: Config, m: MediaFile, inplace: bool = False) -> Path:
 
 
 def assign_names(
-    cfg: Config, items: List[MediaFile], inplace: bool = False,
+    cfg: Config,
+    items: List[MediaFile],
+    inplace: bool = False,
+    camera_map: Optional[Dict[str, str]] = None,
 ) -> List[Tuple[MediaFile, Path, List[Tuple[Path, Path]]]]:
     """파일별 최종 목적지 경로 및 사이드카 매핑을 계산한다 (시퀀스/충돌 처리 포함).
 
-    - 영상(video): 초단위 일치 가능성이 적으므로 시퀀스 번호 생략 ({yymmdd}-{hhmmss}.{EXT}).
-    - 사진/RAW: 고유번호 우선, 부재 시 동일 초 그룹 내 시퀀스(001, 002...) 부여.
+    - 기기식별코드: camera_map.json 및 제조사 규칙 기반 짧은 코드 추출 (예: R6M2, A7M4).
+    - 영상(video):
+        - 기기코드 있음: {yymmdd}-{hhmmss}-{기기코드}.{EXT}
+        - 기기코드 없음: {yymmdd}-{hhmmss}.{EXT}
+    - 사진/RAW:
+        - 기기코드 있음: {yymmdd}-{hhmmss}-{기기코드}-{고유번호}.{EXT}
+        - 기기코드 없음: {yymmdd}-{hhmmss}-{고유번호}.{EXT}
     - 기타(미지원 확장자): 원본 파일명 유지.
     - 사이드카(.xml, .xmp 등): 메인 미디어와 동일한 새 이름으로 변경되어 메인 미디어 폴더로 함께 이동.
-    - 충돌 방지: 모델명 토큰 시도 -> ``_1``, ``_2`` 서픽스.
+    - 충돌 방지: 대상에 동일 파일명 존재 시 ``_1``, ``_2`` 서픽스 부여 (덮어쓰기 절대 금지).
 
     Args:
         cfg: 설정.
         items: 파싱된 미디어 목록.
         inplace: 일회성(oneshot) 제자리 정렬 여부.
+        camera_map: 사용자 정의 카메라 매핑 딕셔너리. None 이면 기본 파일 로드.
 
     Returns:
         ``(MediaFile, main_dst, [(sidecar_src, sidecar_dst), ...])`` 리스트.
@@ -94,26 +104,29 @@ def assign_names(
     seq_counter: Dict[str, int] = defaultdict(int)
     reserved: Set[Path] = set()
     plan: List[Tuple[MediaFile, Path, List[Tuple[Path, Path]]]] = []
+    cam_map = camera_map if camera_map is not None else load_camera_map()
 
     for m in ordered:
         ddir = dest_dir_for(cfg, m, inplace=inplace)
         stamp = m.stamp.strftime("%y%m%d-%H%M%S")
+        cam_code = shorten_model_name(m.model, cam_map)
 
         if m.kind == "other":
             stem, ext = m.path.stem, m.path.suffix  # 원본명 유지
         elif m.kind == "video":
-            # 영상 파일은 시퀀스 문자 없이 일시만 사용
-            stem, ext = stamp, "." + m.ext.upper()
+            # 영상 파일: 기기코드 유무에 따라 stem 결정
+            stem = f"{stamp}-{cam_code}" if cam_code else stamp
+            ext = "." + m.ext.upper()
         else:
+            # 사진/RAW: 고유번호 우선, 부재 시 동일 초 그룹 내 시퀀스 부여
             if m.unique is None:
                 seq_counter[stamp] += 1
                 m.unique = f"{seq_counter[stamp]:03d}"
-            stem, ext = f"{stamp}-{m.unique}", "." + m.ext.upper()
+            # 기기코드 유무에 따라 stem 결정
+            stem = f"{stamp}-{cam_code}-{m.unique}" if cam_code else f"{stamp}-{m.unique}"
+            ext = "." + m.ext.upper()
 
         candidates = [stem]
-        if m.model and m.kind != "other":
-            candidates.append(f"{stem}-{safe_token(m.model)}")
-
         final: Optional[Path] = None
         for cand in candidates:
             p = ddir / f"{cand}{ext}"
@@ -142,3 +155,4 @@ def assign_names(
 
         plan.append((m, final, sidecar_plan))
     return plan
+

@@ -117,11 +117,22 @@ sudo docker run --rm --env-file .env \
 - **일시**: 사진/RAW `DateTimeOriginal`(→`CreateDate`), 영상 `CreateDate`→`MediaCreateDate`, 없으면 `st_mtime`.
   영상의 QuickTime UTC 시각은 `TZ` 기준 로컬 시각으로 변환됩니다.
 - **파일명 형식**:
-  - **사진/RAW**: `{yymmdd}-{hhmmss}-{고유번호/시퀀스}.{ext}`
+  - **사진/RAW**:
+    - 기기식별코드 존재 시: `{yymmdd}-{hhmmss}-{기기코드}-{고유번호/시퀀스}.{ext}` (예: `261007-143000-R6M2-1234.CR3`)
+    - 기기식별코드 부재 시: `{yymmdd}-{hhmmss}-{고유번호/시퀀스}.{ext}` (예: `261007-143000-1234.JPG`)
     - 고유번호: `FileIndex` → `ImageNumber` → `ShutterCount` → 파일명 마지막 연속 숫자 (4자리 정규화, 없으면 동일 초 내 `001`, `002`… 시퀀스).
-  - **영상**: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 제외, 초 단위 일치 가능성이 희박함).
+  - **영상**:
+    - 기기식별코드 존재 시: `{yymmdd}-{hhmmss}-{기기코드}.{ext}` (예: `261007-143000-A7M4.MP4`)
+    - 기기식별코드 부재 시: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 제외, 초 단위 일치 가능성이 희박함).
+  - **기기식별코드 축약 규칙**:
+    - 기본 내장 룰셋 자동 축약:
+      - Canon: `Canon EOS ` 제거, `Mark IV`→`M4`, `Mark III`→`M3`, `Mark II`→`M2` (예: `Canon EOS R6 Mark II` → `R6M2`, `Canon EOS R5` → `R5`)
+      - Sony: `ILCE-` → `A` (예: `ILCE-7M4` → `A7M4`, `ILCE-7RM5` → `A7RM5`, `ILCE-1` → `A1`)
+      - Nikon: `NIKON ` 제거, `_2`/` II` → `M2` (예: `NIKON Z 8` → `Z8`, `NIKON Z 6 II` → `Z6M2`)
+      - Apple iPhone: 특수문자/공백 제거 (예: `iPhone 15 Pro` → `iPhone15Pro`)
+    - 사용자 정의 매핑: 프로젝트 루트의 `camera_map.json` 파일에 `{ "원본모델명": "원하는코드" }` 형태로 직접 지정 가능 (미지정 시 자동 룰셋 적용).
   - **사이드카 파일**: `.xml`, `.xmp`, `.aae`, `.on1` 등의 부속 파일도 메인 미디어와 동일한 새 이름으로 변경되어 해당 폴더로 함께 이동됩니다 (RAW 사이드카는 `RAW/` 폴더로 함께 이동).
-- **충돌 방지**: 대상에 같은 이름이 있으면 ① `-{카메라모델}` 추가 시도 → ② `_1`, `_2` 서픽스. 덮어쓰기는 절대 하지 않습니다.
+- **충돌 방지**: 대상에 같은 이름이 있으면 `_1`, `_2` 서픽스를 순차 부여합니다 (덮어쓰기는 절대 하지 않습니다).
 - **무시 대상**: `@eaDir`, `.raw`, `RAW`, `JPG`, `Video`, `Export`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.
 - 이동 후 비게 된 INPUT 하위 폴더는 정리합니다 (INPUT 루트 및 결과 분류 폴더 유지).
 
