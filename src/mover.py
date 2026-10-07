@@ -102,7 +102,7 @@ def cleanup_empty_dirs(cfg: Config) -> None:
             p == cfg.input_dir
             or p.name in EXCLUDED_DIRS
             or _DATE_DIR_RE.match(p.name)
-            or p.name in ("movie", ".raw")
+            or p.name in (cfg.movie_dir_name, cfg.raw_dir_name, ".raw")
         ):
             continue
         try:
@@ -119,8 +119,11 @@ def process_batch(
     snapshot_of: Callable[[Path], Optional[Tuple[int, int]]],
     dry_run: bool = False,
     on_moved: Optional[Callable[[Path], None]] = None,
+    inplace: bool = False,
 ) -> BatchResult:
     """파일군을 일괄 파싱하고 이동(또는 dry-run 계획 출력)한다.
+
+    사이드카 파일(.xml, .xmp 등)도 메인 미디어와 함께 리네이밍 및 이동된다.
 
     Args:
         cfg: 설정.
@@ -128,6 +131,7 @@ def process_batch(
         snapshot_of: 파일 -> (size, mtime_ns) 스냅샷 제공자 (없으면 None 반환).
         dry_run: True 면 이동 없이 ``[DRY-RUN] src -> dst`` 만 로그로 남긴다.
         on_moved: 이동 완료 시 호출되는 콜백 (추적 상태 정리 등).
+        inplace: True 면 yymmdd 폴더 생성 없이 현재 위치 기준 분류(oneshot).
 
     Returns:
         배치 결과 집계.
@@ -144,7 +148,7 @@ def process_batch(
         items.append(build_media(p, rows.get(str(p), {}), snap))
     result.total = len(files)
 
-    for m, dst in assign_names(cfg, items):
+    for m, dst, sidecar_plan in assign_names(cfg, items, inplace=inplace):
         rel_src = m.path.relative_to(cfg.input_dir)
         rel_dst = dst.relative_to(cfg.target_dir)
 
@@ -159,6 +163,10 @@ def process_batch(
 
         if dry_run:
             logger.info("[DRY-RUN] %s -> %s", rel_src, rel_dst)
+            for ssrc, sdst in sidecar_plan:
+                rel_ssrc = ssrc.relative_to(cfg.input_dir)
+                rel_sdst = sdst.relative_to(cfg.target_dir)
+                logger.info("[DRY-RUN] %s -> %s (사이드카)", rel_ssrc, rel_sdst)
             result.moved += 1
             result.moved_paths.append(m.path)
             continue
@@ -170,6 +178,18 @@ def process_batch(
                 result.skipped += 1
                 continue
             atomic_move(m.path, dst)
+
+            # 연결된 사이드카 파일도 함께 이동
+            for ssrc, sdst in sidecar_plan:
+                try:
+                    if ssrc.resolve() != sdst.resolve():
+                        atomic_move(ssrc, sdst)
+                        rel_ssrc = ssrc.relative_to(cfg.input_dir)
+                        rel_sdst = sdst.relative_to(cfg.target_dir)
+                        logger.log(MOVE_LEVEL, "%s -> %s (사이드카)", rel_ssrc, rel_sdst)
+                except OSError as sexc:
+                    logger.error("사이드카 이동 실패: %s -> %s (%s)", ssrc, sdst, sexc)
+
             if on_moved:
                 on_moved(m.path)
             result.moved += 1

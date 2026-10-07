@@ -62,13 +62,16 @@ def run_oneshot(
         "oneshot 시작: input=%s (in-place) dry_run=%s recursive=%s",
         cfg.input_dir, dry_run, recursive,
     )
-    files = list(iter_input_files(cfg.input_dir, recursive=recursive, skip_date_dirs=True))
+    extra_excluded = {cfg.raw_dir_name, cfg.movie_dir_name, "raw", "movie", ".raw"}
+    files = list(iter_input_files(
+        cfg.input_dir, recursive=recursive, skip_date_dirs=True, extra_excluded_dirs=extra_excluded,
+    ))
     total = BatchResult()
 
     if dry_run:
         # Why: dry-run 은 파일을 건드리지 않으므로 안정화 대기 없이 즉시 계획을 보여준다.
         if files:
-            total.merge(process_batch(cfg, files, _stat_snapshot, dry_run=True))
+            total.merge(process_batch(cfg, files, _stat_snapshot, dry_run=True, inplace=True))
         _log_summary(total, dry_run=True)
         return 0
 
@@ -78,9 +81,13 @@ def run_oneshot(
     while pending and not stop.is_set():
         stable = tracker.poll(pending)
         if stable:
-            total.merge(process_batch(cfg, stable, tracker.snapshot, on_moved=tracker.forget))
+            total.merge(process_batch(
+                cfg, stable, tracker.snapshot, on_moved=tracker.forget, inplace=True,
+            ))
         # 이동된 파일은 제외하고 다시 탐색 (이동 중 새로 도착한 파일도 포함)
-        pending = list(iter_input_files(cfg.input_dir, recursive=recursive, skip_date_dirs=True))
+        pending = list(iter_input_files(
+            cfg.input_dir, recursive=recursive, skip_date_dirs=True, extra_excluded_dirs=extra_excluded,
+        ))
         if not pending:
             break
         if time.monotonic() >= deadline:

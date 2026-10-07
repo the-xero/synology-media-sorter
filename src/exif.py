@@ -13,6 +13,7 @@ from .config import (
     EXIFTOOL_CHUNK, PHOTO_DATE_TAGS, UNIQUE_TAGS, VIDEO_DATE_TAGS, logger,
 )
 from .models import MediaFile
+from .settle import find_sidecars
 
 _DATE_RE = re.compile(r"^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})")
 
@@ -128,4 +129,14 @@ def build_media(path: Path, row: dict, snap: Tuple[int, int]) -> MediaFile:
         if unique is None:
             unique = number_from_filename(path.stem)
     model = row.get("Model")
-    return MediaFile(path, ext, kind, stamp, unique, str(model) if model else None, snap[0], snap[1])
+    return MediaFile(
+        path=path,
+        ext=ext,
+        kind=kind,
+        stamp=stamp,
+        unique=unique,
+        model=str(model) if model else None,
+        size=snap[0],
+        mtime_ns=snap[1],
+        sidecars=find_sidecars(path),
+    )

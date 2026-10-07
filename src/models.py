@@ -30,6 +30,7 @@ class MediaFile:
     model: Optional[str]
     size: int
     mtime_ns: int
+    sidecars: List[Path] = field(default_factory=list)
 
 
 @dataclass

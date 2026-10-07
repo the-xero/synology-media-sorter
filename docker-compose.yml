@@ -17,6 +17,8 @@ services:
       CHECK_INTERVAL: ${CHECK_INTERVAL:-15}
       SETTLE_THRESHOLD: ${SETTLE_THRESHOLD:-30}
       STABLE_ROUNDS: ${STABLE_ROUNDS:-2}
+      RAW_DIR_NAME: ${RAW_DIR_NAME:-raw}
+      MOVIE_DIR_NAME: ${MOVIE_DIR_NAME:-movie}
     volumes:
       - ${HOST_INPUT_DIR}:${INPUT_DIR:-/input}
       - ${HOST_TARGET_DIR}:${TARGET_DIR:-/photos}

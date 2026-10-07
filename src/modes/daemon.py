@@ -23,9 +23,10 @@ def run_daemon(cfg: Config, stop: threading.Event) -> int:
         cfg.input_dir, cfg.target_dir, cfg.check_interval, cfg.settle_threshold, cfg.stable_rounds,
     )
     tracker = SettleTracker(cfg)
+    extra_excluded = {cfg.raw_dir_name, cfg.movie_dir_name, "raw", "movie", ".raw"}
     while not stop.is_set():
         try:
-            files = list(iter_input_files(cfg.input_dir))
+            files = list(iter_input_files(cfg.input_dir, extra_excluded_dirs=extra_excluded))
             stable = tracker.poll(files)
             if stable:
                 result = process_batch(cfg, stable, tracker.snapshot, on_moved=tracker.forget)

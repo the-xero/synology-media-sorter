@@ -33,11 +33,11 @@ sudo docker compose down
 
 ### 2. 일회성(oneshot) 제자리 정리 실행 (`docker run`)
 
-특정 사진 폴더 내부에서 파일들을 날짜별 서브폴더(`{yymmdd}/`)로 **제자리(in-place) 분류 및 리네이밍**합니다.  
-`TARGET_DIR`을 따로 지정할 필요 없이 대상 폴더를 `/input` 하나만 마운트하여 실행합니다.
+특정 미디어 폴더 내부에서 파일들을 **해당 폴더 직하에서 바로 제자리(in-place) 분류 및 리네이밍**합니다.  
+`yymmdd` 서브폴더를 새로 생성하지 않으며, `TARGET_DIR` 설정 없이 대상 폴더를 `/input` 하나만 마운트하여 실행합니다.
 
-- **기본 탐색 범위**: 루트 바로 아래의 파일만 **1단계**로 탐색 (기존 하위 날짜 폴더 제외).
-- **`-r, --recursive`**: 하위 디렉터리까지 재귀 탐색 (단, 이미 생성된 `yymmdd` 날짜 폴더는 중복 방지를 위해 자동 제외).
+- **기본 탐색 범위**: 루트 바로 아래의 파일만 **1단계**로 탐색 (기존 하위 폴더 제외).
+- **`-r, --recursive`**: 하위 디렉터리까지 재귀 탐색 (단, 이미 생성된 `raw`, `movie`, `yymmdd` 폴더는 중복 방지를 위해 자동 제외되며, 하위 폴더 내부에서도 `yymmdd`를 만들지 않고 해당 하위 폴더 직하에서 작업).
 - **`--dry-run`**: 파일을 실제로 이동하지 않고 Settle Check 없이 `[DRY-RUN] src -> dst` 계획과 통계 요약만 즉시 출력.
 
 ```bash
@@ -64,21 +64,25 @@ sudo docker run --rm --env-file .env \
 
 ## 분류 규칙
 
-| 종류 | 확장자 | 위치 |
-|---|---|---|
-| 사진 | JPG, JPEG, HEIC, PNG | `{yymmdd}/` |
-| 영상 | MP4, MOV, M4V, AVI | `{yymmdd}/movie/` |
-| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{yymmdd}/.raw/` |
-| 기타(미지원) | 그 외 | `{yymmdd}/` (원본 파일명 유지) |
+하위 폴더 이름(`raw`, `movie`)은 환경 변수 `RAW_DIR_NAME`, `MOVIE_DIR_NAME`으로 변경할 수 있습니다.
+
+| 종류 | 확장자 | 데몬 위치 (TARGET 기준) | 일회성(oneshot) 위치 (현재 폴더 기준) |
+|---|---|---|---|
+| 사진 | JPG, JPEG, HEIC, PNG | `{yymmdd}/` | `{현재폴더}/` |
+| 영상 | MP4, MOV, M4V, AVI | `{yymmdd}/{movie}/` | `{현재폴더}/{movie}/` |
+| RAW | CR2, CR3, NEF, ARW, DNG, RAF, RW2, ORF | `{yymmdd}/{raw}/` | `{현재폴더}/{raw}/` |
+| 기타(미지원) | 그 외 | `{yymmdd}/` (원본 파일명 유지) | `{현재폴더}/` (원본 파일명 유지) |
 
 - **일시**: 사진/RAW `DateTimeOriginal`(→`CreateDate`), 영상 `CreateDate`→`MediaCreateDate`, 없으면 `st_mtime`.
   영상의 QuickTime UTC 시각은 `TZ` 기준 로컬 시각으로 변환됩니다.
-- **고유번호**(사진/RAW): `FileIndex` → `ImageNumber` → `ShutterCount` → 파일명 마지막 연속 숫자.
-  마지막 4자리를 사용하며 4자리 미만이면 zero-pad (`IMG_12.CR3` → `0012`, `IMG_0012345` → `2345`).
-  없거나 영상이면 동일 초 내 `001`, `002`… 시퀀스.
+- **파일명 형식**:
+  - **사진/RAW**: `{yymmdd}-{hhmmss}-{고유번호}.{ext}`
+    - 고유번호: `FileIndex` → `ImageNumber` → `ShutterCount` → 파일명 마지막 연속 숫자 (4자리 정규화, 없으면 동일 초 내 `001`, `002`… 시퀀스).
+  - **영상**: `{yymmdd}-{hhmmss}.{ext}` (시퀀스 번호 없음, 초 단위 일치 가능성이 희박함).
+  - **사이드카 파일**: `.xml`, `.xmp`, `.aae`, `.on1` 등의 부속 파일도 메인 미디어와 동일한 새 이름으로 변경되어 해당 폴더로 함께 이동됩니다 (RAW 사이드카는 `raw` 폴더로 함께 이동).
 - **충돌 방지**: 대상에 같은 이름이 있으면 ① `-{카메라모델}` 추가 시도 → ② `_1`, `_2` 서픽스. 덮어쓰기는 절대 하지 않습니다.
-- **무시 대상**: `@eaDir`, `.raw`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.
-- 이동 후 비게 된 INPUT 하위 폴더는 정리합니다(INPUT 루트 유지).
+- **무시 대상**: `@eaDir`, `.raw`, `raw`, `movie`, `#recycle`, 숨김(`.`/`~` 시작), `.part/.tmp/.filepart/.crdownload`, `.DS_Store`, `Thumbs.db`.
+- 이동 후 비게 된 INPUT 하위 폴더는 정리합니다 (INPUT 루트 및 결과 분류 폴더 유지).
 
 ## 복사 완료 검증
 

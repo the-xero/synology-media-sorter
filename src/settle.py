@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Set, Tuple
 
 from .config import (
-    EXCLUDED_DIRS, IGNORED_NAMES, IGNORED_SUFFIXES, Config, logger,
+    EXCLUDED_DIRS, IGNORED_NAMES, IGNORED_SUFFIXES, SIDECAR_EXTS, Config, logger,
 )
 from .models import Tracked
 
@@ -30,27 +30,81 @@ def is_ignored_file(name: str) -> bool:
     )
 
 
+def is_sidecar_file(name: str) -> bool:
+    """사이드카 파일(.xml, .xmp, .aae 등) 여부를 판단한다.
+
+    Args:
+        name: 파일명.
+
+    Returns:
+        사이드카 확장자이면 True.
+    """
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return ext in SIDECAR_EXTS
+
+
+def find_sidecars(media_path: Path) -> List[Path]:
+    """미디어 파일에 연결된 사이드카 파일 목록을 반환한다.
+
+    예: ``IMG_0001.CR3`` -> ``IMG_0001.xmp``, ``IMG_0001.xml``, ``IMG_0001.CR3.xmp`` 등.
+
+    Args:
+        media_path: 메인 미디어 파일 경로.
+
+    Returns:
+        존재하는 사이드카 파일 경로 리스트.
+    """
+    sidecars: List[Path] = []
+    parent = media_path.parent
+    stem = media_path.stem
+    full_name = media_path.name
+    for ext in SIDECAR_EXTS:
+        # 패턴 1: {stem}.{ext} (대소문자 확장자 대응)
+        for c in (parent / f"{stem}.{ext}", parent / f"{stem}.{ext.upper()}"):
+            if c.exists() and c.is_file() and c not in sidecars:
+                sidecars.append(c)
+        # 패턴 2: {full_name}.{ext} (예: IMG_0001.CR3.xmp)
+        for c in (parent / f"{full_name}.{ext}", parent / f"{full_name}.{ext.upper()}"):
+            if c.exists() and c.is_file() and c not in sidecars:
+                sidecars.append(c)
+    return sidecars
+
+
 _DATE_DIR_RE = re.compile(r"^\d{6}$")
 
 
 def iter_input_files(
-    root: Path, recursive: bool = True, skip_date_dirs: bool = False,
+    root: Path,
+    recursive: bool = True,
+    skip_date_dirs: bool = False,
+    extra_excluded_dirs: Optional[Set[str]] = None,
 ) -> Iterator[Path]:
-    """INPUT 트리를 순회한다. @eaDir, .raw 등은 진입 자체를 차단한다.
+    """INPUT 트리를 순회한다. @eaDir, raw, movie 등은 진입 자체를 차단한다.
+
+    사이드카 파일(.xml, .xmp 등)은 메인 미디어 파일에 귀속되므로 직접 반환하지 않는다.
 
     Args:
         root: 수신 디렉터리.
         recursive: True 면 하위 디렉터리 재귀 탐색, False 면 루트 직하 파일만 탐색.
         skip_date_dirs: True 면 6자리 날짜 폴더(yymmdd) 탐색 제외(in-place 정렬 시 중복 방지).
+        extra_excluded_dirs: 추가로 제외할 디렉터리 이름 집합 (예: raw, movie).
 
     Yields:
-        처리 후보 파일 경로.
+        처리 후보 메인 미디어 파일 경로.
     """
+    excluded = set(EXCLUDED_DIRS)
+    if extra_excluded_dirs:
+        excluded.update(extra_excluded_dirs)
+
     if not recursive:
         try:
             with os.scandir(root) as it:
                 for entry in it:
-                    if entry.is_file() and not is_ignored_file(entry.name):
+                    if (
+                        entry.is_file()
+                        and not is_ignored_file(entry.name)
+                        and not is_sidecar_file(entry.name)
+                    ):
                         yield Path(entry.path)
         except OSError as exc:
             logger.error("디렉터리 스캔 실패: %s (%s)", root, exc)
@@ -59,14 +113,14 @@ def iter_input_files(
     for dirpath, dirnames, filenames in os.walk(root):
         filtered: List[str] = []
         for d in dirnames:
-            if d in EXCLUDED_DIRS or d.startswith("."):
+            if d in excluded or d.startswith("."):
                 continue
             if skip_date_dirs and _DATE_DIR_RE.match(d):
                 continue
             filtered.append(d)
         dirnames[:] = filtered
         for fn in filenames:
-            if not is_ignored_file(fn):
+            if not is_ignored_file(fn) and not is_sidecar_file(fn):
                 yield Path(dirpath) / fn
 
 

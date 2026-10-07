@@ -17,8 +17,9 @@ from typing import Set, Tuple
 PHOTO_EXTS: Set[str] = {"jpg", "jpeg", "heic", "png"}
 VIDEO_EXTS: Set[str] = {"mp4", "mov", "m4v", "avi"}
 RAW_EXTS: Set[str] = {"cr2", "cr3", "nef", "arw", "dng", "raf", "rw2", "orf"}
+SIDECAR_EXTS: Set[str] = {"xmp", "xml", "aae", "on1"}
 
-# 탐색에서 완전히 제외할 디렉터리 (Synology 메타/휴지통 및 분류 결과 폴더)
+# 탐색에서 완전히 제외할 디렉터리 (Synology 메타/휴지통 및 레거시/임시 폴더)
 EXCLUDED_DIRS: Set[str] = {"@eaDir", ".raw", "#recycle", "@tmp", "#snapshot"}
 # 전송 중/임시/시스템 파일은 무시 (원본 그대로 유지)
 IGNORED_NAMES: Set[str] = {".ds_store", "thumbs.db", "desktop.ini"}
@@ -58,6 +59,8 @@ class Config:
     check_interval: float
     settle_threshold: float
     stable_rounds: int
+    raw_dir_name: str = "raw"
+    movie_dir_name: str = "movie"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -76,6 +79,8 @@ class Config:
                 check_interval=float(os.environ.get("CHECK_INTERVAL", "15")),
                 settle_threshold=float(os.environ.get("SETTLE_THRESHOLD", "30")),
                 stable_rounds=int(os.environ.get("STABLE_ROUNDS", "2")),
+                raw_dir_name=os.environ.get("RAW_DIR_NAME", "raw").strip() or "raw",
+                movie_dir_name=os.environ.get("MOVIE_DIR_NAME", "movie").strip() or "movie",
             )
         except ValueError as exc:
             raise ValueError(f"환경 변수 숫자 형식 오류: {exc}") from exc
