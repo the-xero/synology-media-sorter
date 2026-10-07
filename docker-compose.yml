@@ -1,0 +1,26 @@
+services:
+  media-sorter:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: media-sorter:latest
+    container_name: media-sorter
+    restart: unless-stopped
+    # Synology 계정 권한으로 실행해야 생성 파일 소유권이 올바름
+    user: "${PUID:-1026}:${PGID:-100}"
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      INPUT_DIR: ${INPUT_DIR:-/input}
+      TARGET_DIR: ${TARGET_DIR:-/photos}
+      CHECK_INTERVAL: ${CHECK_INTERVAL:-15}
+      SETTLE_THRESHOLD: ${SETTLE_THRESHOLD:-30}
+      STABLE_ROUNDS: ${STABLE_ROUNDS:-2}
+    volumes:
+      - ${HOST_INPUT_DIR}:${INPUT_DIR:-/input}
+      - ${HOST_TARGET_DIR}:${TARGET_DIR:-/photos}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
